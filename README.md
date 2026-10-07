@@ -1,111 +1,82 @@
-# SafeGrid 🌍🚨
-> **Disaster Preparedness & Emergency Risk Information System**
+# SafeGrid
 
-SafeGrid is an open-source disaster preparedness platform that transforms messy public hazard data into clear, understandable geographic risk zones displayed on an interactive, offline-ready map.
+> Disaster preparedness platform that aggregates public hazard data, processes it through a backend risk engine, and communicates geographic risk through an interactive, offline-capable map.
 
----
+## Core pipeline
 
-## 💡 What is SafeGrid in Simple Words?
-
-When a disaster happens, raw weather reports and earthquake coordinates are confusing for ordinary citizens. 
-**SafeGrid solves this by:**
-1. Fetching real public disaster data (earthquakes, extreme weather).
-2. Processing that data through our own backend risk engine.
-3. Classifying danger into simple color zones:
-   - 🔴 **High Risk** (immediate threat / epicenters)
-   - 🟡 **Moderate Risk** (buffer zones / potential impact)
-   - 🟢 **Low Risk** (minimal hazard — *never described as absolute safety*)
-4. Displaying these zones on a fast, mobile-friendly map that works even when network connectivity drops.
-
----
-
-## 🏗️ Architecture & Data Flow
-
-```text
-  [ Public APIs ] (USGS Earthquakes, Open-Meteo Weather)
-         ↓
-  [ FastAPI Backend ] (Ingestion, Validation & Normalization)
-         ↓
-  [ Risk Engine ] (Severity Scoring & Affected Radius Calculation)
-         ↓
-  [ GeoJSON REST API ] (/api/hazards, /api/risk-zones)
-         ↓
-  [ Frontend PWA + MapLibre GL JS ] (Interactive 🔴 🟡 🟢 Map Layers)
-         ↓
-  [ Database & Offline Cache ] (Service Worker + IndexedDB / Local Cache)
+```
+External APIs (USGS, Open-Meteo)
+        ↓
+  FastAPI Backend
+        ↓
+  Data Normalization
+        ↓
+    Risk Engine
+        ↓
+     GeoJSON
+        ↓
+  REST API  ←─── PWA Client (MapLibre)
+                      ↓
+               🔴 🟡 🟢 Zones
 ```
 
----
-
-## 🛠️ Tech Stack
+## Technology stack
 
 | Layer | Technology |
-| :--- | :--- |
-| **Backend** | Python 3.10+, FastAPI, Pydantic |
-| **Frontend** | TypeScript / JavaScript, Progressive Web App (PWA) |
-| **Mapping Engine**| MapLibre GL JS |
-| **Data Sources** | USGS (Earthquake API), Open-Meteo (Weather API) |
-| **Storage & Cache**| Relational / Document DB (TBD), Service Worker, IndexedDB |
-| **Version Control**| Git + GitHub (Feature Branch Workflow) |
+|---|---|
+| Backend | Python 3.11+, FastAPI |
+| Frontend | JavaScript/TypeScript, PWA, MapLibre GL JS |
+| Hazard data | USGS Earthquake API, Open-Meteo |
+| Database | TBD — see [ARCHITECTURE.md](./docs/ARCHITECTURE.md) |
+| Version control | Git, GitHub |
 
----
+## Team ownership
 
-## 👥 Team Roles & Responsibilities
+| Person | Subsystem | Branch |
+|---|---|---|
+| Rajat B R | Backend / API integration | `feature/backend-api` |
+| S Athreya | Risk engine / Geospatial processing | `feature/risk-engine` |
+| Suchith N S| Frontend / Map | `feature/map-ui` |
+| Syed Afroz | Database / Offline | `feature/database` |
 
-| Role | Focus | Core Responsibilities |
-| :--- | :--- | :--- |
-| **Person 1** | **Backend & APIs** | FastAPI setup, USGS/Open-Meteo integration, data normalization, REST endpoints. |
-| **Person 2** | **Risk Engine & GeoJSON** | Hazard scoring logic, severity thresholds, risk boundary calculation, GeoJSON output generation. |
-| **Person 3** | **Frontend & Map UI** | PWA interface, MapLibre GL JS integration, rendering 🔴🟡🟢 layers, hazard markers, dashboard. |
-| **Person 4** | **Database & Offline Mode** | Database schema, persistence, Service Worker caching, IndexedDB offline data, handling stale data indicators. |
+## Quick start
 
----
+### Backend
 
-## 🎯 Target Milestone: The First Vertical Slice
-
-Before building complex features or bells and whistles, the team must complete one complete end-to-end working pipeline:
-
-```text
-USGS API  ➜  FastAPI Ingestion  ➜  Basic Risk Scoring  ➜  GeoJSON  ➜  MapLibre  ➜  🔴 🟡 🟢 Map
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
 ```
 
-If this flow works reliably, the core technical foundation of SafeGrid is proven.
+Backend runs at `http://localhost:8000`.  
+API docs at `http://localhost:8000/docs`.
 
----
+### Frontend
 
-## 🚫 Out of Scope for MVP (What We Are NOT Building Yet)
-
-To finish on time, the team has explicitly excluded:
-- ❌ AI chatbots & LLM-generated alerts
-- ❌ SMS / WhatsApp gateways
-- ❌ Native mobile apps (Flutter/React Native) — *PWA web first*
-- ❌ Complex volunteer/resource dispatch systems
-- ❌ Expensive cloud infrastructure
-
----
-
-## 🌿 Git & Collaboration Workflow
-
-We follow a strict **branch-per-feature** workflow:
-
-```text
-main
- ├── feature/backend-api    (Person 1)
- ├── feature/risk-engine    (Person 2)
- ├── feature/map-ui         (Person 3)
- └── feature/offline        (Person 4)
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-1. **Never commit directly to `main`**.
-2. Create a feature branch: `git checkout -b feature/<feature-name>`.
-3. Keep commits atomic and clearly described (e.g. `feat: add USGS earthquake parsing`).
-4. Open a Pull Request (PR) to `main` and get a team review before merging.
+Frontend runs at `http://localhost:5173`.
 
----
+## Documentation
 
-## ⚠️ Safety & Honesty Disclaimer
+- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) — system design decisions
+- [API.md](./docs/API.md) — backend/frontend contract
+- [RISK_MODEL.md](./docs/RISK_MODEL.md) — risk thresholds and justifications *(placeholder)*
+- [OFFLINE.md](./docs/OFFLINE.md) — offline strategy *(placeholder)*
 
-SafeGrid is an academic and community research prototype.
-- It is **not** a certified government emergency broadcast or official rescue system.
-- It **never** claims guaranteed disaster prediction.
-- Stale, cached, or simulated demo data is always explicitly marked as such to the user.
+## Important limitations
+
+SafeGrid is an academic project, not a certified emergency-response system.
+It does **not** guarantee disaster prediction, official authority, or life-critical reliability.
+Offline mode provides access to previously cached data only — it cannot fetch live data without network connectivity.
+
+## Contributing
+
+See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) *(placeholder)*.
