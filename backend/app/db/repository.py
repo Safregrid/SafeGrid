@@ -4,6 +4,9 @@ Owner: Person 4 (Database & Offline System)
 
 This is the ONLY interface Person 1 and other subsystems should call
 to save or load data from the database. No raw SQL outside this module.
+
+Updated 2026-10-07: Aligned with agreed Hazard model (magnitude, probability,
+duration, specific_data) replacing old raw_magnitude / raw_values fields.
 """
 
 from __future__ import annotations
@@ -27,9 +30,13 @@ def init_db(database: Database = db) -> None:
 def save_hazard(hazard: Any, database: Database = db) -> dict:
     """
     Saves or updates a normalized Hazard in the database.
-    Accepts either a Pydantic Hazard model or a dictionary.
+
+    Accepts either a Pydantic Hazard model (from Person 1) or a plain dict.
+
+    Generic by design: works for earthquakes, rainfall, storms, or any
+    future hazard type — specific data goes into the 'specific_data' JSON column.
     """
-    # Handle Pydantic model or dictionary
+    # Accept Pydantic model or plain dict
     if hasattr(hazard, "model_dump"):
         data = hazard.model_dump()
     elif isinstance(hazard, dict):
@@ -37,31 +44,31 @@ def save_hazard(hazard: Any, database: Database = db) -> dict:
     else:
         raise ValueError(f"Unsupported hazard type: {type(hazard)}")
 
-    # Extract coordinates from location.coordinates [lon, lat] or lat/lon fields
+    # Extract [longitude, latitude] from GeoPoint location field
     if "location" in data and isinstance(data["location"], dict):
         coords = data["location"].get("coordinates", [0.0, 0.0])
         lon, lat = coords[0], coords[1]
     else:
+        # Fallback for plain dict input
         lat = data.get("latitude", 0.0)
         lon = data.get("longitude", 0.0)
 
-    # Format timestamp
+    # Normalize timestamp to ISO string
     ts = data.get("timestamp")
-    if isinstance(ts, datetime):
-        ts_str = ts.isoformat()
-    else:
-        ts_str = str(ts)
+    ts_str = ts.isoformat() if isinstance(ts, datetime) else str(ts)
 
-    raw_values_json = json.dumps(data.get("raw_values", {}))
+    # Serialize specific_data dict to JSON string for storage
+    specific_data_json = json.dumps(data.get("specific_data", {}))
+
     created_at = datetime.now(timezone.utc).isoformat()
 
     with database.get_connection() as conn:
         conn.execute("""
             INSERT OR REPLACE INTO hazards (
                 id, hazard_type, source, timestamp, latitude, longitude,
-                raw_magnitude, raw_values, created_at
+                magnitude, probability, duration, specific_data, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, (
             data["id"],
             data.get("hazard_type", "unknown"),
@@ -69,8 +76,10 @@ def save_hazard(hazard: Any, database: Database = db) -> dict:
             ts_str,
             lat,
             lon,
-            data.get("raw_magnitude"),
-            raw_values_json,
+            data.get("magnitude"),        # earthquake magnitude or storm strength
+            data.get("probability"),      # rainfall probability 0.0–1.0
+            data.get("duration"),         # hazard duration in hours
+            specific_data_json,           # source-specific JSON extras
             created_at
         ))
 
@@ -78,7 +87,7 @@ def save_hazard(hazard: Any, database: Database = db) -> dict:
 
 
 def get_hazard(hazard_id: str, database: Database = db) -> dict | None:
-    """Fetches a single hazard by ID."""
+    """Fetches a single hazard by ID. Returns None if not found."""
     with database.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM hazards WHERE id = ?;", (hazard_id,))
@@ -86,28 +95,32 @@ def get_hazard(hazard_id: str, database: Database = db) -> dict | None:
         if not row:
             return None
         res = dict(row)
-        res["raw_values"] = json.loads(res.get("raw_values") or "{}")
+        res["specific_data"] = json.loads(res.get("specific_data") or "{}")
         return res
 
 
 def list_hazards(limit: int = 50, database: Database = db) -> list[dict]:
-    """Fetches the latest hazards, sorted from newest to oldest."""
+    """
+    Fetches the latest hazards, sorted from newest to oldest.
+    Works for all hazard types (earthquake, rainfall, etc.)
+    """
     with database.get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM hazards ORDER BY timestamp DESC LIMIT ?;", (limit,))
-        rows = cursor.fetchall()
-        hazards = []
-        for r in rows:
-            item = dict(r)
-            item["raw_values"] = json.loads(item.get("raw_values") or "{}")
-            hazards.append(item)
-        return hazards
+        cursor.execute(
+            "SELECT * FROM hazards ORDER BY timestamp DESC LIMIT ?;", (limit,)
+        )
+        results = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item["specific_data"] = json.loads(item.get("specific_data") or "{}")
+            results.append(item)
+        return results
 
 
 def save_risk_result(risk: Any, database: Database = db) -> dict:
     """
     Saves or updates a RiskResult produced by Person 2's risk engine.
-    Accepts either a Pydantic RiskResult model or a dictionary.
+    Accepts either a Pydantic RiskResult model or a plain dict.
     """
     if hasattr(risk, "model_dump"):
         data = risk.model_dump()
@@ -117,10 +130,11 @@ def save_risk_result(risk: Any, database: Database = db) -> dict:
         raise ValueError(f"Unsupported risk result type: {type(risk)}")
 
     calc_at = data.get("calculated_at")
-    if isinstance(calc_at, datetime):
-        calc_at_str = calc_at.isoformat()
-    else:
-        calc_at_str = str(calc_at or datetime.now(timezone.utc).isoformat())
+    calc_at_str = (
+        calc_at.isoformat()
+        if isinstance(calc_at, datetime)
+        else str(calc_at or datetime.now(timezone.utc).isoformat())
+    )
 
     affected_area_json = json.dumps(data.get("affected_area", {}))
 
@@ -143,10 +157,12 @@ def save_risk_result(risk: Any, database: Database = db) -> dict:
 
 
 def get_risk_result(hazard_id: str, database: Database = db) -> dict | None:
-    """Fetches risk classification details for a hazard ID."""
+    """Fetches risk classification details for a hazard ID. Returns None if not found."""
     with database.get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM risk_results WHERE hazard_id = ?;", (hazard_id,))
+        cursor.execute(
+            "SELECT * FROM risk_results WHERE hazard_id = ?;", (hazard_id,)
+        )
         row = cursor.fetchone()
         if not row:
             return None
@@ -158,25 +174,49 @@ def get_risk_result(hazard_id: str, database: Database = db) -> dict | None:
 def list_hazards_with_risk(limit: int = 50, database: Database = db) -> list[dict]:
     """
     Fetches hazards joined with their calculated risk results.
-    Ideal for feeding Person 3's map with 🔴 🟡 🟢 GeoJSON data.
+
+    This is the primary data feed for Person 3's map UI.
+    Returns everything the map needs to paint 🔴 🟡 🟢 GeoJSON zones:
+    - id, hazard_type, source, timestamp
+    - latitude, longitude (for map marker placement)
+    - magnitude, probability, duration (for tooltip/detail display)
+    - risk_level (HIGH / MODERATE / LOW / None)
+    - severity_score
+    - affected_area (GeoJSON Polygon for zone shading)
+    - notes (threshold justification from Person 2)
     """
     with database.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT 
-                h.id, h.hazard_type, h.source, h.timestamp, h.latitude, h.longitude,
-                h.raw_magnitude, h.raw_values,
-                r.risk_level, r.severity_score, r.affected_area, r.notes
+            SELECT
+                h.id,
+                h.hazard_type,
+                h.source,
+                h.timestamp,
+                h.latitude,
+                h.longitude,
+                h.magnitude,
+                h.probability,
+                h.duration,
+                h.specific_data,
+                r.risk_level,
+                r.severity_score,
+                r.affected_area,
+                r.notes
             FROM hazards h
             LEFT JOIN risk_results r ON h.id = r.hazard_id
             ORDER BY h.timestamp DESC
             LIMIT ?;
         """, (limit,))
-        rows = cursor.fetchall()
+
         results = []
-        for r in rows:
-            item = dict(r)
-            item["raw_values"] = json.loads(item.get("raw_values") or "{}")
-            item["affected_area"] = json.loads(item.get("affected_area") or "{}") if item.get("affected_area") else None
+        for row in cursor.fetchall():
+            item = dict(row)
+            item["specific_data"] = json.loads(item.get("specific_data") or "{}")
+            item["affected_area"] = (
+                json.loads(item["affected_area"])
+                if item.get("affected_area")
+                else None
+            )
             results.append(item)
         return results

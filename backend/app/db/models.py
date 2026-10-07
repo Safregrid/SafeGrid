@@ -2,7 +2,12 @@
 Database schema models and table definitions for SafeGrid.
 Owner: Person 4 (Database & Offline System)
 
-Defines SQL table structures matching the internal Hazard and RiskResult models.
+Updated 2026-10-07: Aligned with agreed Hazard model fields from Person 1.
+Fields updated:
+  - raw_magnitude → magnitude
+  - probability (new): rainfall/weather probability score
+  - duration (new): hazard duration in hours
+  - raw_values → specific_data: source-specific JSON blob
 """
 
 # Schema for hazard events (normalized data from Person 1)
@@ -14,8 +19,10 @@ CREATE TABLE IF NOT EXISTS hazards (
     timestamp TEXT NOT NULL,
     latitude REAL NOT NULL,
     longitude REAL NOT NULL,
-    raw_magnitude REAL,
-    raw_values TEXT DEFAULT '{}',
+    magnitude REAL,
+    probability REAL,
+    duration REAL,
+    specific_data TEXT DEFAULT '{}',
     created_at TEXT NOT NULL
 );
 """
@@ -33,8 +40,9 @@ CREATE TABLE IF NOT EXISTS risk_results (
 );
 """
 
-# Indexes for fast querying by risk level and timestamp
+# Indexes for fast querying by risk level, hazard type, and timestamp
 INDEXES_SQL = """
 CREATE INDEX IF NOT EXISTS idx_hazards_timestamp ON hazards(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_hazards_type ON hazards(hazard_type);
 CREATE INDEX IF NOT EXISTS idx_risk_level ON risk_results(risk_level);
 """

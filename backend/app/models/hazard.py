@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class GeoPoint(BaseModel):
@@ -30,6 +30,12 @@ class Hazard(BaseModel):
 
     Produced by: Person 1 (ingestion layer).
     Consumed by: Person 2 (risk engine) and Person 4 (database layer).
+
+    Fields agreed with Person 1 on 2026-10-07:
+    - magnitude: numeric strength (earthquake magnitude or storm intensity)
+    - probability: 0.0–1.0 likelihood score (used by rainfall/weather hazards)
+    - duration: duration of hazard in hours (e.g. rainfall duration window)
+    - specific_data: flexible dict for any source-specific extra fields
     """
 
     id: str
@@ -37,8 +43,10 @@ class Hazard(BaseModel):
     source: str               # e.g. "usgs", "open_meteo"
     timestamp: datetime
     location: GeoPoint
-    raw_magnitude: float | None = None
-    raw_values: dict[str, Any] = {}  # source-specific normalized fields
+    magnitude: float | None = None        # earthquake magnitude or storm strength
+    probability: float | None = None      # rainfall/weather probability (0.0–1.0)
+    duration: float | None = None         # hazard duration in hours
+    specific_data: dict[str, Any] = Field(default_factory=dict)  # source-specific extras
 
 
 class RiskResult(BaseModel):

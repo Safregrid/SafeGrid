@@ -2,8 +2,9 @@
 Unit tests for SafeGrid Database layer.
 Owner: Person 4 (Database & Offline System)
 
-Tests isolation, schema creation, hazard persistence, risk result persistence,
-and queries without affecting production database.
+Updated 2026-10-07: Aligned with agreed Hazard model fields.
+Tests both earthquake-type and rainfall-type hazards to confirm
+the repository is generic and not earthquake-specific.
 """
 
 import unittest
@@ -24,61 +25,76 @@ from app.models.hazard import GeoPoint, Hazard, RiskResult
 
 class TestDatabaseRepository(unittest.TestCase):
     def setUp(self):
-        """Run each test against a fresh, isolated in-memory database."""
+        """Run each test in a fresh in-memory database. Never touches safegrid.db."""
         self.test_db = Database(db_path=":memory:")
         init_db(database=self.test_db)
 
-    def test_save_and_get_hazard_dict(self):
+    # ------------------------------------------------------------------
+    # Test 1: Save and retrieve an EARTHQUAKE hazard using plain dict
+    # ------------------------------------------------------------------
+    def test_save_earthquake_as_dict(self):
         sample = {
-            "id": "eq-test-01",
+            "id": "eq-usgs-001",
             "hazard_type": "earthquake",
             "source": "usgs",
             "timestamp": "2026-10-07T10:00:00Z",
             "latitude": 35.6762,
             "longitude": 139.6503,
-            "raw_magnitude": 5.4,
-            "raw_values": {"depth_km": 10.5}
+            "magnitude": 5.4,
+            "probability": None,
+            "duration": None,
+            "specific_data": {"depth_km": 10.5, "felt_reports": 340}
         }
         saved = save_hazard(sample, database=self.test_db)
-        self.assertEqual(saved["id"], "eq-test-01")
-        self.assertEqual(saved["raw_magnitude"], 5.4)
-        self.assertEqual(saved["raw_values"]["depth_km"], 10.5)
+        self.assertEqual(saved["id"], "eq-usgs-001")
+        self.assertEqual(saved["magnitude"], 5.4)
+        self.assertIsNone(saved["probability"])
+        self.assertEqual(saved["specific_data"]["depth_km"], 10.5)
 
-        retrieved = get_hazard("eq-test-01", database=self.test_db)
-        self.assertIsNotNone(retrieved)
-        self.assertEqual(retrieved["id"], "eq-test-01")
-
-    def test_save_and_get_hazard_pydantic_model(self):
-        hazard_model = Hazard(
-            id="eq-pydantic-02",
-            hazard_type="earthquake",
-            source="usgs",
+    # ------------------------------------------------------------------
+    # Test 2: Save and retrieve a RAINFALL hazard using Pydantic model
+    # ------------------------------------------------------------------
+    def test_save_rainfall_as_pydantic_model(self):
+        rainfall_hazard = Hazard(
+            id="rain-openmeteo-001",
+            hazard_type="rainfall",
+            source="open_meteo",
             timestamp=datetime.now(timezone.utc),
-            location=GeoPoint(coordinates=[139.6503, 35.6762]),
-            raw_magnitude=6.8,
-            raw_values={"depth_km": 25.0}
+            location=GeoPoint(coordinates=[72.8777, 19.0760]),  # Mumbai [lon, lat]
+            magnitude=None,          # Not applicable for rainfall
+            probability=0.87,        # 87% probability of heavy rain
+            duration=6.0,            # Expected 6-hour rainfall window
+            specific_data={"precipitation_mm": 95.4, "intensity": "heavy"}
         )
-        saved = save_hazard(hazard_model, database=self.test_db)
-        self.assertEqual(saved["id"], "eq-pydantic-02")
-        self.assertAlmostEqual(saved["longitude"], 139.6503)
-        self.assertAlmostEqual(saved["latitude"], 35.6762)
+        saved = save_hazard(rainfall_hazard, database=self.test_db)
+        self.assertEqual(saved["id"], "rain-openmeteo-001")
+        self.assertEqual(saved["hazard_type"], "rainfall")
+        self.assertIsNone(saved["magnitude"])
+        self.assertAlmostEqual(saved["probability"], 0.87)
+        self.assertEqual(saved["duration"], 6.0)
+        self.assertEqual(saved["specific_data"]["intensity"], "heavy")
+        # Coordinates extracted from GeoPoint correctly
+        self.assertAlmostEqual(saved["longitude"], 72.8777)
+        self.assertAlmostEqual(saved["latitude"], 19.0760)
 
-    def test_save_and_get_risk_result(self):
-        # First save the hazard
-        sample = {
-            "id": "eq-risk-01",
+    # ------------------------------------------------------------------
+    # Test 3: Save a RiskResult and link it to a hazard
+    # ------------------------------------------------------------------
+    def test_save_and_retrieve_risk_result(self):
+        # First: save the hazard
+        save_hazard({
+            "id": "eq-risk-test-01",
             "hazard_type": "earthquake",
             "source": "usgs",
             "timestamp": "2026-10-07T12:00:00Z",
             "latitude": 37.77,
             "longitude": -122.41,
-            "raw_magnitude": 6.2
-        }
-        save_hazard(sample, database=self.test_db)
+            "magnitude": 6.5,
+        }, database=self.test_db)
 
-        # Now save RiskResult for it
+        # Then: save the risk result (from Person 2)
         risk = RiskResult(
-            hazard_id="eq-risk-01",
+            hazard_id="eq-risk-test-01",
             risk_level="HIGH",
             severity_score=8.5,
             affected_area={"type": "Polygon", "coordinates": []},
@@ -89,49 +105,70 @@ class TestDatabaseRepository(unittest.TestCase):
         self.assertEqual(saved_risk["risk_level"], "HIGH")
         self.assertEqual(saved_risk["severity_score"], 8.5)
 
-        retrieved = get_risk_result("eq-risk-01", database=self.test_db)
+        retrieved = get_risk_result("eq-risk-test-01", database=self.test_db)
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved["notes"], "Magnitude > 6.0 in urban area")
 
-    def test_list_hazards_with_risk_join(self):
-        # 1. Insert 2 hazards
-        h1 = {
-            "id": "h-1",
+    # ------------------------------------------------------------------
+    # Test 4: list_hazards_with_risk returns correct joined structure
+    #         for Person 3's map — with both an earthquake and rainfall entry
+    # ------------------------------------------------------------------
+    def test_list_hazards_with_risk_join_mixed_types(self):
+        # Save an earthquake with risk result
+        save_hazard({
+            "id": "eq-join-01",
             "hazard_type": "earthquake",
             "source": "usgs",
             "timestamp": "2026-10-07T08:00:00Z",
             "latitude": 10.0,
-            "longitude": 20.0
-        }
-        h2 = {
-            "id": "h-2",
-            "hazard_type": "earthquake",
-            "source": "usgs",
-            "timestamp": "2026-10-07T09:00:00Z",
-            "latitude": 15.0,
-            "longitude": 25.0
-        }
-        save_hazard(h1, database=self.test_db)
-        save_hazard(h2, database=self.test_db)
-
-        # 2. Add risk result to h2 only
+            "longitude": 20.0,
+            "magnitude": 6.1,
+        }, database=self.test_db)
         save_risk_result({
-            "hazard_id": "h-2",
-            "risk_level": "MODERATE",
-            "severity_score": 5.0,
-            "affected_area": {"type": "Circle"},
-            "notes": "Moderate tremor"
+            "hazard_id": "eq-join-01",
+            "risk_level": "HIGH",
+            "severity_score": 7.5,
+            "affected_area": {"type": "Polygon"},
+            "notes": "Severe shaking expected"
         }, database=self.test_db)
 
-        # 3. Query joined list
+        # Save a rainfall hazard WITHOUT a risk result yet (still pending Person 2)
+        save_hazard({
+            "id": "rain-join-02",
+            "hazard_type": "rainfall",
+            "source": "open_meteo",
+            "timestamp": "2026-10-07T09:00:00Z",
+            "latitude": 19.0,
+            "longitude": 72.8,
+            "probability": 0.75,
+            "duration": 3.0,
+        }, database=self.test_db)
+
         joined = list_hazards_with_risk(database=self.test_db)
         self.assertEqual(len(joined), 2)
-        # Most recent first: h-2
-        self.assertEqual(joined[0]["id"], "h-2")
-        self.assertEqual(joined[0]["risk_level"], "MODERATE")
-        # h-1 has no risk yet
-        self.assertEqual(joined[1]["id"], "h-1")
-        self.assertIsNone(joined[1]["risk_level"])
+
+        # Most recent first (rainfall at 09:00 comes first)
+        rain = joined[0]
+        quake = joined[1]
+
+        self.assertEqual(rain["id"], "rain-join-02")
+        self.assertEqual(rain["hazard_type"], "rainfall")
+        # Rainfall has no risk result yet — all risk fields should be None
+        self.assertIsNone(rain["risk_level"])
+        self.assertIsNone(rain["affected_area"])
+
+        self.assertEqual(quake["id"], "eq-join-01")
+        self.assertEqual(quake["risk_level"], "HIGH")
+        self.assertIsNotNone(quake["affected_area"])
+
+        # Confirm all keys Person 3's map needs are present
+        required_keys = {
+            "id", "hazard_type", "source", "timestamp",
+            "latitude", "longitude", "magnitude", "probability",
+            "duration", "specific_data", "risk_level",
+            "severity_score", "affected_area", "notes"
+        }
+        self.assertTrue(required_keys.issubset(set(joined[0].keys())))
 
 
 if __name__ == "__main__":
