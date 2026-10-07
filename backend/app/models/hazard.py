@@ -37,8 +37,9 @@ class Hazard(BaseModel):
     source: str               # e.g. "usgs", "open_meteo"
     timestamp: datetime
     location: GeoPoint
-    raw_magnitude: float | None = None
-    raw_values: dict[str, Any] = {}  # source-specific normalized fields
+    specific_data: dict[str, Any] = Field(default_factory=dict) # hazard specific normalised fields
+    probability: float | None = None
+    duration: float | None = None    
 
 
 class RiskResult(BaseModel):
