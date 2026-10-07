@@ -35,9 +35,9 @@ External APIs (USGS, Open-Meteo)
 | Person | Subsystem | Branch |
 |---|---|---|
 | Rajat B R | Backend / API integration | `feature/backend-api` |
-| Syed Afroz | Risk engine / Geospatial processing | `feature/risk-engine` |
+| S Athreya | Risk engine / Geospatial processing | `feature/risk-engine` |
 | Suchith N S| Frontend / Map | `feature/map-ui` |
-| S Athreya | Database / Offline | `feature/offline` |
+| Syed Afroz | Database / Offline | `feature/database` |
 
 ## Quick start
 
