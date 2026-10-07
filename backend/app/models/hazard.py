@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class GeoPoint(BaseModel):
@@ -40,7 +40,7 @@ class Hazard(BaseModel):
     magnitude: float | None = None
     probability: float | None = None
     duration: float | None = None
-    specific_data: dict[str, Any] = Field(default_factory=dict)   
+    specific_data: dict[str, Any] = Field(default_factory=dict)
 
 
 class RiskResult(BaseModel):
