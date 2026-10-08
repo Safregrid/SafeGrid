@@ -34,7 +34,6 @@ class Hazard(BaseModel):
     Fields agreed with Person 1 on 2026-10-07:
     - magnitude: numeric strength (earthquake magnitude or storm intensity)
     - probability: 0.0–1.0 likelihood score (used by rainfall/weather hazards)
-    - duration: duration of hazard in hours (e.g. rainfall duration window)
     - specific_data: flexible dict for any source-specific extra fields
     """
 
@@ -45,7 +44,6 @@ class Hazard(BaseModel):
     location: GeoPoint
     magnitude: float | None = None        # earthquake magnitude or storm strength
     probability: float | None = None      # rainfall/weather probability (0.0–1.0)
-    duration: float | None = None         # hazard duration in hours
     specific_data: dict[str, Any] = Field(default_factory=dict)  # source-specific extras
 
 
