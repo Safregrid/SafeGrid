@@ -6,7 +6,7 @@ This is the ONLY interface Person 1 and other subsystems should call
 to save or load data from the database. No raw SQL outside this module.
 
 Updated 2026-10-07: Aligned with agreed Hazard model (magnitude, probability,
-duration, specific_data) replacing old raw_magnitude / raw_values fields.
+specific_data) replacing old raw_magnitude / raw_values fields.
 """
 
 from __future__ import annotations
@@ -66,9 +66,9 @@ def save_hazard(hazard: Any, database: Database = db) -> dict:
         conn.execute("""
             INSERT OR REPLACE INTO hazards (
                 id, hazard_type, source, timestamp, latitude, longitude,
-                magnitude, probability, duration, specific_data, created_at
+                magnitude, probability, specific_data, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, (
             data["id"],
             data.get("hazard_type", "unknown"),
@@ -78,7 +78,6 @@ def save_hazard(hazard: Any, database: Database = db) -> dict:
             lon,
             data.get("magnitude"),        # earthquake magnitude or storm strength
             data.get("probability"),      # rainfall probability 0.0–1.0
-            data.get("duration"),         # hazard duration in hours
             specific_data_json,           # source-specific JSON extras
             created_at
         ))
@@ -179,7 +178,7 @@ def list_hazards_with_risk(limit: int = 50, database: Database = db) -> list[dic
     Returns everything the map needs to paint 🔴 🟡 🟢 GeoJSON zones:
     - id, hazard_type, source, timestamp
     - latitude, longitude (for map marker placement)
-    - magnitude, probability, duration (for tooltip/detail display)
+    - magnitude, probability (for tooltip/detail display)
     - risk_level (HIGH / MODERATE / LOW / None)
     - severity_score
     - affected_area (GeoJSON Polygon for zone shading)
@@ -197,7 +196,6 @@ def list_hazards_with_risk(limit: int = 50, database: Database = db) -> list[dic
                 h.longitude,
                 h.magnitude,
                 h.probability,
-                h.duration,
                 h.specific_data,
                 r.risk_level,
                 r.severity_score,

@@ -42,7 +42,6 @@ class TestDatabaseRepository(unittest.TestCase):
             "longitude": 139.6503,
             "magnitude": 5.4,
             "probability": None,
-            "duration": None,
             "specific_data": {"depth_km": 10.5, "felt_reports": 340}
         }
         saved = save_hazard(sample, database=self.test_db)
@@ -63,7 +62,6 @@ class TestDatabaseRepository(unittest.TestCase):
             location=GeoPoint(coordinates=[72.8777, 19.0760]),  # Mumbai [lon, lat]
             magnitude=None,          # Not applicable for rainfall
             probability=0.87,        # 87% probability of heavy rain
-            duration=6.0,            # Expected 6-hour rainfall window
             specific_data={"precipitation_mm": 95.4, "intensity": "heavy"}
         )
         saved = save_hazard(rainfall_hazard, database=self.test_db)
@@ -71,7 +69,6 @@ class TestDatabaseRepository(unittest.TestCase):
         self.assertEqual(saved["hazard_type"], "rainfall")
         self.assertIsNone(saved["magnitude"])
         self.assertAlmostEqual(saved["probability"], 0.87)
-        self.assertEqual(saved["duration"], 6.0)
         self.assertEqual(saved["specific_data"]["intensity"], "heavy")
         # Coordinates extracted from GeoPoint correctly
         self.assertAlmostEqual(saved["longitude"], 72.8777)
@@ -141,7 +138,6 @@ class TestDatabaseRepository(unittest.TestCase):
             "latitude": 19.0,
             "longitude": 72.8,
             "probability": 0.75,
-            "duration": 3.0,
         }, database=self.test_db)
 
         joined = list_hazards_with_risk(database=self.test_db)
@@ -165,7 +161,7 @@ class TestDatabaseRepository(unittest.TestCase):
         required_keys = {
             "id", "hazard_type", "source", "timestamp",
             "latitude", "longitude", "magnitude", "probability",
-            "duration", "specific_data", "risk_level",
+            "specific_data", "risk_level",
             "severity_score", "affected_area", "notes"
         }
         self.assertTrue(required_keys.issubset(set(joined[0].keys())))

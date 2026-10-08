@@ -6,7 +6,6 @@ Updated 2026-10-07: Aligned with agreed Hazard model fields from Person 1.
 Fields updated:
   - raw_magnitude → magnitude
   - probability (new): rainfall/weather probability score
-  - duration (new): hazard duration in hours
   - raw_values → specific_data: source-specific JSON blob
 """
 
@@ -21,7 +20,6 @@ CREATE TABLE IF NOT EXISTS hazards (
     longitude REAL NOT NULL,
     magnitude REAL,
     probability REAL,
-    duration REAL,
     specific_data TEXT DEFAULT '{}',
     created_at TEXT NOT NULL
 );
