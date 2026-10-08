@@ -71,7 +71,6 @@ class OpenMeteoClient:
                     ),
                     magnitude=None,
                     probability=probability,
-                    duration=None,
                     specific_data={
                         "precipitation_mm": amount,
                     },
