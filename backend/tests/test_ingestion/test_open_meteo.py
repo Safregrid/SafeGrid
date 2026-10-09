@@ -82,24 +82,26 @@ class MockAsyncClient:
 async def test_fetch_precipitation():
     client = OpenMeteoClient()
 
-    hazards = await client.fetch_precipitation(
+    records = await client.fetch_precipitation(
         lat=28.6139,
         lon=77.2090,
     )
 
-    assert len(hazards) > 0
+    assert len(records) > 0
 
-    hazard = hazards[0]
+    record = records[0]
 
-    assert hazard.hazard_type == "rainfall"
-    assert hazard.source == "open_meteo"
-    assert hazard.location.coordinates == [77.2090, 28.6139]
-    assert 0 <= hazard.probability <= 100
-    assert "precipitation_mm" in hazard.specific_data
-    assert "wind_speed_kmh" in hazard.specific_data
-    assert "wind_gusts_kmh" in hazard.specific_data
-    assert "weather_code" in hazard.specific_data
+    assert record.data_type == "weather"
+    assert record.source == "open_meteo"
+    assert record.location.coordinates == [77.2090, 28.6139]
+    assert 0 <= record.probability <= 100
+    assert "precipitation_mm" in record.specific_data
+    assert "wind_speed_kmh" in record.specific_data
+    assert "wind_gusts_kmh" in record.specific_data
+    assert "weather_code" in record.specific_data
 
+
+@pytest.mark.asyncio
 async def test_fetch_precipitation_success(monkeypatch):
 
     mock_response = MockResponse(VALID_RESPONSE)
@@ -111,23 +113,23 @@ async def test_fetch_precipitation_success(monkeypatch):
 
     client = OpenMeteoClient()
 
-    hazards = await client.fetch_precipitation(
+    records = await client.fetch_precipitation(
         lat=12.9716,
         lon=77.5946,
     )
 
-    assert len(hazards) == 2
+    assert len(records) == 2
 
-    hazard = hazards[0]
+    record = records[0]
 
-    assert hazard.hazard_type == "rainfall"
-    assert hazard.source == "open_meteo"
-    assert hazard.magnitude == 0.0
-    assert hazard.probability == 0
-    assert hazard.specific_data["precipitation_mm"] == 0.0
-    assert hazard.specific_data["wind_speed_kmh"] == 10.2
-    assert hazard.specific_data["wind_gusts_kmh"] == 18.0
-    assert hazard.specific_data["weather_code"] == 0
+    assert record.data_type == "weather"
+    assert record.source == "open_meteo"
+    assert record.magnitude == 0.0
+    assert record.probability == 0
+    assert record.specific_data["precipitation_mm"] == 0.0
+    assert record.specific_data["wind_speed_kmh"] == 10.2
+    assert record.specific_data["wind_gusts_kmh"] == 18.0
+    assert record.specific_data["weather_code"] == 0
 
 async def test_http_error(monkeypatch):
     mock_response = MockResponse(

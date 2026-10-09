@@ -19,11 +19,12 @@ from typing import Any
 
 import httpx
 
-from app.models.hazard import GeoPoint, Hazard
+from app.models.data import DataRecord
+from app.models.hazard import GeoPoint
 
 
 class OpenMeteoClient:
-    """Client for fetching precipitation forecasts from Open-Meteo."""
+    """Client for fetching precipitation and weather forecasts from Open-Meteo."""
 
     BASE_URL = "https://api.open-meteo.com/v1/forecast"
 
@@ -31,8 +32,8 @@ class OpenMeteoClient:
         self,
         lat: float,
         lon: float,
-    ) -> list[Hazard]:
-        """Fetch hourly precipitation forecasts and normalize them to Hazards."""
+    ) -> list[DataRecord]:
+        """Fetch hourly weather/precipitation forecasts and normalize them to DataRecords."""
 
         params = {
             "latitude": lat,
@@ -76,17 +77,17 @@ class OpenMeteoClient:
             raise OpenMeteoError(
                 "Open-Meteo returned an invalid response"
             ) from exc
-        
+
         if not (len(times) == len(precipitation) == len(probabilities)):
             raise OpenMeteoError(
                 "Open-Meteo returned hourly arrays with different lengths"
             )
-        
+
         wind_speeds = hourly.get("wind_speed_10m", [None] * len(times))
         wind_gusts = hourly.get("wind_gusts_10m", [None] * len(times))
         weather_codes = hourly.get("weather_code", [None] * len(times))
 
-        hazards: list[Hazard] = []
+        records: list[DataRecord] = []
 
         for timestamp, amount, probability, wind_speed, wind_gust, weather_code in zip(
             times,
@@ -96,10 +97,10 @@ class OpenMeteoClient:
             wind_gusts,
             weather_codes,
         ):
-            hazards.append(
-                Hazard(
+            records.append(
+                DataRecord(
                     id=f"open-meteo:{lat}:{lon}:{timestamp}",
-                    hazard_type="rainfall",
+                    data_type="weather",
                     source="open_meteo",
                     timestamp=datetime.fromisoformat(timestamp),
                     location=GeoPoint(
@@ -116,4 +117,4 @@ class OpenMeteoClient:
                 )
             )
 
-        return hazards
+        return records

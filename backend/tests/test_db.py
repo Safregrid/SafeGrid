@@ -11,15 +11,19 @@ import unittest
 from datetime import datetime, timezone
 
 from app.db.repository import (
+    get_data_record,
     get_hazard,
     get_risk_result,
     init_db,
+    list_data_records,
     list_hazards,
     list_hazards_with_risk,
+    save_data_record,
     save_hazard,
     save_risk_result,
 )
 from app.db.session import Database
+from app.models.data import DataRecord
 from app.models.hazard import GeoPoint, Hazard, RiskResult
 
 
@@ -28,6 +32,33 @@ class TestDatabaseRepository(unittest.TestCase):
         """Run each test in a fresh in-memory database. Never touches safegrid.db."""
         self.test_db = Database(db_path=":memory:")
         init_db(database=self.test_db)
+
+    # ------------------------------------------------------------------
+    # Test 0: Save and retrieve a provider DataRecord
+    # ------------------------------------------------------------------
+    def test_save_and_retrieve_data_record(self):
+        record = DataRecord(
+            id="open-meteo:12.9:77.5:2026-10-09T10:00",
+            data_type="weather",
+            source="open_meteo",
+            timestamp=datetime.now(timezone.utc),
+            location=GeoPoint(coordinates=[77.5, 12.9]),
+            magnitude=0.0,
+            probability=10.0,
+            specific_data={"precipitation_mm": 0.0, "wind_speed_kmh": 5.2},
+        )
+        saved = save_data_record(record, database=self.test_db)
+        self.assertEqual(saved["id"], record.id)
+        self.assertEqual(saved["data_type"], "weather")
+        self.assertEqual(saved["source"], "open_meteo")
+        self.assertEqual(saved["specific_data"]["wind_speed_kmh"], 5.2)
+
+        fetched = get_data_record(record.id, database=self.test_db)
+        self.assertIsNotNone(fetched)
+        self.assertEqual(fetched["source"], "open_meteo")
+
+        records_list = list_data_records(database=self.test_db)
+        self.assertEqual(len(records_list), 1)
 
     # ------------------------------------------------------------------
     # Test 1: Save and retrieve an EARTHQUAKE hazard using plain dict

@@ -108,19 +108,40 @@ Key files:
 
 These are the contracts between subsystems. Each must be agreed on before integration.
 
-### Interface A — Ingestion → Risk engine (internal Python)
+### Interface A — Ingestion → Hazard Identification → Risk Engine
 
-Person 1 normalizes external API responses into a `Hazard` object.
-Person 2 consumes a `Hazard` object and returns a `RiskResult` object.
+The system enforces a clear 3-tier conceptual flow:
 
+1. **Provider Data (`DataRecord`)**: Ingestion normalizes raw provider forecasts and observations (e.g. Open-Meteo hourly weather, USGS seismic feeds). Routine forecast readings (e.g., 0mm rain, light breeze) remain as `DataRecord` records and are **not** automatically classified as hazards.
+2. **Hazard (`Hazard`)**: Hazardous events or conditions identified by evaluating `DataRecord` objects against threshold rules or explicitly reported by authority feeds.
+3. **Risk Result (`RiskResult`)**: Spatial risk zones and severity scores computed by Person 2's risk engine for identified hazards.
+
+Flow:
 ```
+Provider -> Ingestion -> DataRecord -> Hazard identification -> Hazard -> Risk assessment -> RiskResult
+```
+
+```python
+DataRecord {
+    id: str                 # "open-meteo:lat:lon:timestamp"
+    data_type: str          # "weather" | "seismic" | ...
+    source: str             # "open_meteo" | "usgs"
+    timestamp: datetime
+    location: GeoPoint      # GeoJSON Point (lon, lat)
+    magnitude: float | None
+    probability: float | None
+    specific_data: dict     # provider-specific readings
+}
+
 Hazard {
+    id: str
     hazard_type: str        # "earthquake" | "rainfall" | ...
     source: str             # "usgs" | "open_meteo"
     timestamp: datetime
-    location: Point         # GeoJSON Point (lon, lat)
-    raw_magnitude: float | None
-    raw_values: dict        # source-specific normalized fields
+    location: GeoPoint      # GeoJSON Point (lon, lat)
+    magnitude: float | None
+    probability: float | None
+    specific_data: dict     # hazard-specific details
 }
 
 RiskResult {
