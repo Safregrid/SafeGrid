@@ -43,7 +43,7 @@ class Hazard(BaseModel):
     timestamp: datetime
     location: GeoPoint
     magnitude: float | None = None        # earthquake magnitude or storm strength
-    probability: float | None = None      # rainfall/weather probability (0.0–1.0)
+    probability: float | None = None      # rainfall/weather probability (0 to 100%)
     specific_data: dict[str, Any] = Field(default_factory=dict)  # source-specific extras
 
 
