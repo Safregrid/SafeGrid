@@ -13,8 +13,8 @@ async def test_open_meteo_hazard_persists_to_database():
     client = OpenMeteoClient()
 
     hazards = await client.fetch_precipitation(
-        lat=12.9716,
-        lon=77.5946,
+        lat=14.617094,
+        lon=74.844864
     )
 
     assert hazards
