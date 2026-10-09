@@ -77,7 +77,7 @@ def save_hazard(hazard: Any, database: Database = db) -> dict:
             lat,
             lon,
             data.get("magnitude"),        # earthquake magnitude or storm strength
-            data.get("probability"),      # rainfall probability 0.0–1.0
+            data.get("probability"),      # rainfall probability 0 to 100%
             specific_data_json,           # source-specific JSON extras
             created_at
         ))
