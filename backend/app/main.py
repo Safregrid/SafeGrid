@@ -38,3 +38,7 @@ async def health() -> dict:
 #   app.include_router(hazards.router, prefix="/api")
 #   app.include_router(risk_zones.router, prefix="/api")
 # ---------------------------------------------------------------------------
+
+from app.api.hazards import router as hazards_router
+app.include_router(hazards_router, prefix="/api")
+
