@@ -31,30 +31,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.log(`Loaded ${hazards?.length ?? 0} hazard records.`);
 
       renderHazardMarkers(map, hazards, (selectedHazard) => {
-        const lat = selectedHazard?.latitude ?? 12.9716;
-        const lng = selectedHazard?.longitude ?? 77.5946;
-        map.flyTo({ center: [lng, lat], zoom: 8 });
+        if (typeof selectedHazard?.latitude === 'number' && typeof selectedHazard?.longitude === 'number') {
+          map.flyTo({ center: [selectedHazard.longitude, selectedHazard.latitude], zoom: 8 });
+        }
       });
 
-      if (riskZonesGeoJSON && riskZonesGeoJSON.features && riskZonesGeoJSON.features.length > 0) {
+      // Pass actual GeoJSON if available, otherwise pass empty collection (no fabrication)
+      if (riskZonesGeoJSON && riskZonesGeoJSON.features) {
         updateRiskZones(map, riskZonesGeoJSON);
-      } else if (Array.isArray(hazards) && hazards.length > 0) {
-        const fallbackGeoJSON = {
-          type: 'FeatureCollection',
-          features: hazards.map((h) => ({
-            type: 'Feature',
-            geometry: { 
-              type: 'Point', 
-              coordinates: [h.longitude ?? 77.5946, h.latitude ?? 12.9716] 
-            },
-            properties: {
-              id: h.id,
-              risk_level: h.risk_level ?? 'LOW',
-              severity_score: h.severity_score
-            }
-          }))
-        };
-        updateRiskZones(map, fallbackGeoJSON);
+      } else {
+        updateRiskZones(map, { type: 'FeatureCollection', features: [] });
       }
     } catch (err) {
       console.error('Failed to load map data pipeline:', err);
