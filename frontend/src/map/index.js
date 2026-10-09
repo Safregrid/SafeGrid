@@ -1,88 +1,3 @@
-/**
- * SafeGrid Map Module
- * Person 3 owns this file.
- */
-
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
-const RISK_SOURCE_ID = 'risk-zones';
-
-const COLOR_HIGH = '#ef4444';     // Red
-const COLOR_MODERATE = '#f59e0b'; // Amber
-const COLOR_LOW = '#22c55e';      // Green
-
-export function initMap(containerId = 'map') {
-  const map = new maplibregl.Map({
-    container: containerId,
-    style: MAP_STYLE,
-    center: [77.5946, 12.9716], // Default Bengaluru [lng, lat]
-    zoom: 5,
-  });
-
-  map.addControl(new maplibregl.NavigationControl(), 'top-right');
-  return map;
-}
-
-export function addRiskZoneLayer(map, geojson) {
-  if (!map.getSource(RISK_SOURCE_ID)) {
-    map.addSource(RISK_SOURCE_ID, {
-      type: 'geojson',
-      data: geojson || { type: 'FeatureCollection', features: [] }
-    });
-
-    map.addLayer({
-      id: 'risk-zones-fill',
-      type: 'fill',
-      source: RISK_SOURCE_ID,
-      paint: {
-        'fill-color': [
-          'match',
-          ['get', 'risk_level'],
-          'HIGH', COLOR_HIGH,
-          'RED', COLOR_HIGH,
-          'MODERATE', COLOR_MODERATE,
-          'YELLOW', COLOR_MODERATE,
-          'LOW', COLOR_LOW,
-          'GREEN', COLOR_LOW,
-          '#6b7280'
-        ],
-        'fill-opacity': 0.35
-      }
-    });
-
-    map.addLayer({
-      id: 'risk-zones-line',
-      type: 'line',
-      source: RISK_SOURCE_ID,
-      paint: {
-        'line-color': [
-          'match',
-          ['get', 'risk_level'],
-          'HIGH', COLOR_HIGH,
-          'RED', COLOR_HIGH,
-          'MODERATE', COLOR_MODERATE,
-          'YELLOW', COLOR_MODERATE,
-          'LOW', COLOR_LOW,
-          'GREEN', COLOR_LOW,
-          '#6b7280'
-        ],
-        'line-width': 2
-      }
-    });
-  }
-}
-
-export function updateRiskZones(map, geojson) {
-  const source = map.getSource(RISK_SOURCE_ID);
-  if (source) {
-    source.setData(geojson || { type: 'FeatureCollection', features: [] });
-  } else {
-    addRiskZoneLayer(map, geojson);
-  }
-}
-
 export function renderHazardMarkers(map, hazards, onSelectHazard) {
   const existing = document.querySelectorAll('.hazard-marker');
   existing.forEach((el) => el.remove());
@@ -92,6 +7,11 @@ export function renderHazardMarkers(map, hazards, onSelectHazard) {
   let lowCount = 0;
 
   (hazards ?? []).forEach((hazard) => {
+    // Skip hazards missing valid coordinates instead of placing at fallback defaults
+    if (typeof hazard?.latitude !== 'number' || typeof hazard?.longitude !== 'number') {
+      return;
+    }
+
     const risk = (hazard?.risk_level ?? 'LOW').toUpperCase();
     
     let markerColor = COLOR_LOW;
@@ -146,7 +66,7 @@ export function renderHazardMarkers(map, hazards, onSelectHazard) {
     });
 
     new maplibregl.Marker({ element: el })
-      .setLngLat([hazard?.longitude ?? 77.5946, hazard?.latitude ?? 12.9716])
+      .setLngLat([hazard.longitude, hazard.latitude])
       .setPopup(popup)
       .addTo(map);
   });
