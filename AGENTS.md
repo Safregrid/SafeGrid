@@ -34,7 +34,7 @@ npm run build   # this is the CI gate
 
 ## Gotchas
 
-- Dependencies use **`httpx2`, not `httpx`** (Starlette's `TestClient` now expects httpx2; `httpx2>=0.28.0` resolves to 2.x). Don't "fix" it back to `httpx`.
+- HTTP deps need **both `httpx` and `httpx2`**: the ingestion code and tests do `import httpx` (installed via `httpx>=0.27.0`), while Starlette's `TestClient` (fastapi) prefers `httpx2` and deprecates plain `httpx`. Omitting `httpx` breaks CI with `ModuleNotFoundError: No module named 'httpx'`.
 - Missing `pytest-asyncio` (i.e. skipping `requirements-dev.txt`) causes `Unknown config option: asyncio_mode` warnings.
 - Database is **stdlib `sqlite3`, not SQLAlchemy** — `docs/ARCHITECTURE.md` still says SQLAlchemy; trust the code.
   - File: `backend/safegrid.db` (gitignored). Tests use `Database(db_path=":memory:")` (one shared connection).
