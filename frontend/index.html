@@ -3,35 +3,64 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="SafeGrid — disaster preparedness and geographic risk visualization" />
-    <title>SafeGrid</title>
+    <meta name="description" content="SafeGrid — National Disaster Preparedness & Emergency Response System" />
+    <title>SafeGrid — National Hazard & Emergency Portal</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app">
-      <header style="background: #1e293b; color: #f8fafc; padding: 1rem 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center;">
-        <h1 style="font-size: 1.25rem; font-weight: 600; margin: 0;">🛡️ SafeGrid <span style="font-size: 0.85rem; font-weight: 400; background: #3b82f6; padding: 0.2rem 0.5rem; border-radius: 4px; margin-left: 0.5rem;">Scaffold v0.1</span></h1>
-        <span style="font-size: 0.85rem; color: #94a3b8;">Backend: <a href="http://localhost:8000/docs" target="_blank" style="color: #60a5fa; text-decoration: none;">http://localhost:8000/docs</a></span>
+      <!-- Official Government Style Top Bar -->
+      <header class="gov-header">
+        <div class="gov-title-container">
+          <div class="gov-emblem">🛡️</div>
+          <div>
+            <h1 class="gov-title">SAFEGRID DISASTER MANAGEMENT AUTHORITY</h1>
+            <p class="gov-subtitle">National Real-Time Emergency & Hazard Response Portal</p>
+          </div>
+        </div>
+        <div class="gov-meta">
+          <span class="system-status"><span class="status-dot"></span> SYSTEM ONLINE</span>
+          <a href="http://localhost:8000/docs" target="_blank" class="api-docs-link">API Gateway Docs</a>
+        </div>
       </header>
-      <main style="padding: 2rem; max-width: 800px; margin: 0 auto;">
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem;">
-          <h2 style="font-size: 1.1rem; color: #0f172a; margin-bottom: 0.5rem;">🚀 Frontend Dev Server Active</h2>
-          <p style="color: #475569; font-size: 0.95rem; line-height: 1.5;">
-            The project scaffold is successfully installed and ready for development.
-          </p>
-        </div>
-        
-        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem;">
-          <h3 style="font-size: 1rem; color: #334155; margin-bottom: 0.75rem;">Next Steps by Subsystem:</h3>
-          <ul style="color: #475569; font-size: 0.9rem; line-height: 1.8; padding-left: 1.25rem;">
-            <li><strong>P1 (API/Integration):</strong> Implement hazard data connectors in <code>backend/app/ingestion/</code></li>
-            <li><strong>P2 (Risk Model):</strong> Define spatial risk algorithms in <code>backend/app/risk/</code></li>
-            <li><strong>P3 (Map/UI):</strong> Initialize MapLibre GL instance in <code>frontend/src/map/index.js</code></li>
-            <li><strong>P4 (Offline/DB):</strong> Register Service Worker in <code>frontend/src/service-worker.js</code></li>
-          </ul>
-        </div>
-      </main>
-      <div id="map-container"></div>
+
+      <!-- Main Portal Dashboard & Map Area -->
+      <div class="dashboard-body">
+        <!-- Fullscreen Map Base -->
+        <div id="map"></div>
+
+        <!-- Overlaid Emergency Control Panel -->
+        <aside class="control-panel">
+          <div class="panel-section">
+            <h2 class="panel-heading">Active Hazard Overview</h2>
+            <div class="threat-counters">
+              <div class="counter-card high">
+                <span class="counter-num" id="count-high">0</span>
+                <span class="counter-label">HIGH RISK</span>
+              </div>
+              <div class="counter-card moderate">
+                <span class="counter-num" id="count-moderate">0</span>
+                <span class="counter-label">MODERATE</span>
+              </div>
+              <div class="counter-card low">
+                <span class="counter-num" id="count-low">0</span>
+                <span class="counter-label">LOW RISK</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h3 class="section-title">Hazard Information Feed</h3>
+            <div id="hazard-details-card" class="details-card">
+              <p class="details-placeholder">Click any marker or risk zone on the map to inspect full telemetry data.</p>
+            </div>
+          </div>
+
+          <div class="panel-footer">
+            <p class="footer-note">Official Use Only | SafeGrid Operations Center</p>
+          </div>
+        </aside>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
