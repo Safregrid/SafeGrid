@@ -8,14 +8,19 @@ const BASE_URL = "/api";
 
 /**
  * Fetches active hazards from the backend.
- * Throws on HTTP/Network error so Service Worker handles offline fallback.
+ * Unwraps data if Person 1 returns an envelope object {"hazards": [...]}.
  */
 export async function fetchHazards() {
   const response = await fetch(`${BASE_URL}/hazards`);
   if (!response.ok) {
     throw new Error(`Failed to fetch hazards: ${response.status}`);
   }
-  return await response.json();
+  const data = await response.json();
+  // Envelope check: Handles both {"hazards": [...]} and bare [...]
+  if (data && Array.isArray(data.hazards)) {
+    return data.hazards;
+  }
+  return Array.isArray(data) ? data : [];
 }
 
 /**
