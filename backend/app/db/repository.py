@@ -63,12 +63,24 @@ def save_hazard(hazard: Any, database: Database = db) -> dict:
     created_at = datetime.now(timezone.utc).isoformat()
 
     with database.get_connection() as conn:
+        # Upsert (ON CONFLICT DO UPDATE), NOT INSERT OR REPLACE:
+        # REPLACE deletes the old hazards row, and ON DELETE CASCADE would
+        # delete the linked risk_results row. Updating in place keeps the rating.
         conn.execute("""
-            INSERT OR REPLACE INTO hazards (
+            INSERT INTO hazards (
                 id, hazard_type, source, timestamp, latitude, longitude,
                 magnitude, probability, specific_data, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                hazard_type = excluded.hazard_type,
+                source = excluded.source,
+                timestamp = excluded.timestamp,
+                latitude = excluded.latitude,
+                longitude = excluded.longitude,
+                magnitude = excluded.magnitude,
+                probability = excluded.probability,
+                specific_data = excluded.specific_data;
         """, (
             data["id"],
             data.get("hazard_type", "unknown"),

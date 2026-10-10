@@ -166,6 +166,38 @@ class TestDatabaseRepository(unittest.TestCase):
         }
         self.assertTrue(required_keys.issubset(set(joined[0].keys())))
 
+    def test_resaving_hazard_keeps_risk_result(self):
+        hazard = {
+            "id": "eq-10",
+            "hazard_type": "earthquake",
+            "source": "usgs",
+            "timestamp": "2026-10-07T10:00:00Z",
+            "latitude": 35.6,
+            "longitude": 139.6,
+            "magnitude": 5.0,
+        }
+
+        # 1. Save the hazard, then give it a rating
+        save_hazard(hazard, database=self.test_db)
+        save_risk_result(
+            {
+                "hazard_id": "eq-10",
+                "risk_level": "HIGH",
+                "severity_score": 8.0,
+                "affected_area": {},
+            },
+            database=self.test_db,
+        )
+
+        # 2. Save the SAME hazard again (like USGS sending a correction)
+        hazard["magnitude"] = 5.4
+        save_hazard(hazard, database=self.test_db)
+
+        # 3. The rating must still exist
+        risk = get_risk_result("eq-10", database=self.test_db)
+        self.assertIsNotNone(risk)
+        self.assertEqual(risk["risk_level"], "HIGH")
+
 
 if __name__ == "__main__":
     unittest.main()
