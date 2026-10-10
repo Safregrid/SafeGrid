@@ -13,11 +13,14 @@ Public interface for data persistence:
 """
 
 from app.db.repository import (
+    get_data_record,
     get_hazard,
     get_risk_result,
     init_db,
+    list_data_records,
     list_hazards,
     list_hazards_with_risk,
+    save_data_record,
     save_hazard,
     save_risk_result,
 )
@@ -27,6 +30,9 @@ __all__ = [
     "Database",
     "db",
     "init_db",
+    "save_data_record",
+    "get_data_record",
+    "list_data_records",
     "save_hazard",
     "get_hazard",
     "list_hazards",

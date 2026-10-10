@@ -9,7 +9,23 @@ Fields updated:
   - raw_values → specific_data: source-specific JSON blob
 """
 
-# Schema for hazard events (normalized data from Person 1)
+# Schema for raw provider data records (ingest from Person 1)
+DATA_RECORDS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS data_records (
+    id TEXT PRIMARY KEY,
+    data_type TEXT NOT NULL,
+    source TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    magnitude REAL,
+    probability REAL,
+    specific_data TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+"""
+
+# Schema for hazard events (identified from data records or explicitly reported)
 HAZARDS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS hazards (
     id TEXT PRIMARY KEY,
@@ -38,8 +54,10 @@ CREATE TABLE IF NOT EXISTS risk_results (
 );
 """
 
-# Indexes for fast querying by risk level, hazard type, and timestamp
+# Indexes for fast querying by timestamp, data type, hazard type, and risk level
 INDEXES_SQL = """
+CREATE INDEX IF NOT EXISTS idx_data_records_timestamp ON data_records(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_data_records_type ON data_records(data_type);
 CREATE INDEX IF NOT EXISTS idx_hazards_timestamp ON hazards(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_hazards_type ON hazards(hazard_type);
 CREATE INDEX IF NOT EXISTS idx_risk_level ON risk_results(risk_level);

@@ -1,8 +1,6 @@
 # SafeGrid — API Contract
 
-> Status: **DRAFT — schema not yet finalized.**
-> Update this document when Person 1, Person 2, and Person 3 agree on the schema.
-> Do not treat the examples below as final contracts.
+> Status: **Updated 2026-10-09** — reflects agreed DataRecord, Hazard, and RiskResult schemas.
 
 ---
 
@@ -27,29 +25,80 @@ Health check. Returns 200 when the backend is running.
 
 ---
 
-### `GET /api/hazards`
+### `GET /api/data`
 
-Returns the current list of normalized hazard events from all ingested sources.
+Returns recent normalized raw environmental observations and forecasts (`DataRecord`) from ingested providers.
 
-**Response (draft)**
+**Query parameters**
+- `limit` (int, default=50, max=500)
+
+**Response**
 ```json
-[
-  {
-    "id": "string",
-    "hazard_type": "earthquake",
-    "source": "usgs",
-    "timestamp": "2026-01-01T00:00:00Z",
-    "location": {
-      "type": "Point",
-      "coordinates": [lon, lat]
-    },
-    "raw_magnitude": 5.2,
-    "risk_level": "MODERATE"
-  }
-]
+{
+  "records": [
+    {
+      "id": "open-meteo:12.9716:77.5946:2026-10-09T10:00",
+      "data_type": "weather",
+      "source": "open_meteo",
+      "timestamp": "2026-10-09T10:00:00Z",
+      "latitude": 12.9716,
+      "longitude": 77.5946,
+      "magnitude": 0.0,
+      "probability": 40.0,
+      "specific_data": {
+        "precipitation_mm": 0.0,
+        "wind_speed_kmh": 12.5,
+        "wind_gusts_kmh": 22.1,
+        "weather_code": 61
+      },
+      "created_at": "2026-10-09T10:05:00Z"
+    }
+  ]
+}
 ```
 
-> ⚠️ OPEN: field names, types, and included fields are not final.
+---
+
+### `GET /api/data/{id}`
+
+Returns a single raw data record by ID.
+
+**Path parameters**
+- `id` — data record identifier
+
+**Response**: single `DataRecord` object.
+
+---
+
+### `GET /api/hazards`
+
+Returns the current list of identified hazard events.
+
+**Query parameters**
+- `limit` (int, default=50, max=500)
+
+**Response**
+```json
+{
+  "is_live": true,
+  "hazards": [
+    {
+      "id": "eq-usgs-001",
+      "hazard_type": "earthquake",
+      "source": "usgs",
+      "timestamp": "2026-10-09T10:00:00Z",
+      "latitude": 35.6762,
+      "longitude": 139.6503,
+      "magnitude": 5.4,
+      "probability": null,
+      "specific_data": {
+        "depth_km": 10.5
+      },
+      "created_at": "2026-10-09T10:01:00Z"
+    }
+  ]
+}
+```
 
 ---
 
@@ -60,17 +109,17 @@ Returns a single hazard event by ID.
 **Path parameters**
 - `id` — hazard identifier
 
-**Response (draft)**: same shape as one element of `/api/hazards`.
+**Response**: single `Hazard` object.
 
 ---
 
 ### `GET /api/risk-zones`
 
-Returns a GeoJSON `FeatureCollection` of all current risk zones for map rendering.
+Returns a GeoJSON `FeatureCollection` of all current risk zones for map rendering (main map feed).
 
-Each `Feature` represents a geographic area with a risk level.
+Each `Feature` represents a geographic polygon area with a calculated risk level.
 
-**Response (draft)**
+**Response**
 ```json
 {
   "type": "FeatureCollection",
@@ -86,7 +135,7 @@ Each `Feature` represents a geographic area with a risk level.
         "hazard_type": "earthquake",
         "risk_level": "HIGH",
         "severity_score": 7.2,
-        "calculated_at": "2026-01-01T00:00:00Z",
+        "calculated_at": "2026-10-09T10:00:00Z",
         "is_live": true
       }
     }
@@ -94,20 +143,15 @@ Each `Feature` represents a geographic area with a risk level.
 }
 ```
 
-> ⚠️ OPEN: geometry representation per hazard type is not yet decided.
-> Do not assume every hazard will use a circular buffer polygon.
-
 ---
 
 ## Risk levels
 
 | Value | Meaning |
 |---|---|
-| `"HIGH"` | 🔴 High risk |
-| `"MODERATE"` | 🟡 Moderate / potential risk |
-| `"LOW"` | 🟢 Low risk |
-
-`LOW` does **not** mean safe. It means the lowest of the three tracked categories.
+| `"HIGH"` | 🔴 High risk zone |
+| `"MODERATE"` | 🟡 Moderate / potential risk zone |
+| `"LOW"` | 🟢 Low risk zone |
 
 ---
 
@@ -119,23 +163,18 @@ Each `Feature` represents a geographic area with a risk level.
 }
 ```
 
-Standard HTTP status codes apply (400, 404, 422, 500, 503).
+Standard HTTP status codes apply:
+- `200 OK`: Successful response (returns array/dict, even if empty `[]`)
+- `404 Not Found`: Invalid resource or hazard ID
+- `422 Unprocessable Entity`: Invalid query parameters (e.g. limit < 1)
+- `500 Internal Server Error`: Backend/database failure
 
 ---
 
 ## Data freshness
 
-Responses include `is_live: true` when data comes from a live backend fetch.
-Responses include `is_live: false` when data is served from cache or last-known state.
-
-The frontend must surface this distinction to users.
-
----
-
-## Future endpoints (not in MVP)
-
-- `POST /api/reports` — user-submitted local hazard report (P1/P2)
-- `GET /api/alerts` — push notification triggers (P1/P2)
+Responses include `is_live: true` when data comes from live provider ingestion.
+Responses include `is_live: false` when data is served from cached or last-known state.
 
 ---
 
@@ -144,3 +183,6 @@ The frontend must surface this distinction to users.
 | Date | Change | Author |
 |---|---|---|
 | 2026-10-06 | Initial draft | scaffold |
+| 2026-10-07 | Aligned Hazard model: `magnitude`, `probability`, `specific_data` | Person 1 |
+| 2026-10-09 | Added `GET /api/data` endpoints, 3-tier Data/Hazard/RiskResult model | Person 1 |
+

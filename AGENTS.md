@@ -7,7 +7,7 @@ SafeGrid — academic disaster-preparedness platform. Two independent halves; **
 - `backend/` — Python 3.11+, FastAPI, stdlib SQLite. Entry point `backend/app/main.py` (run from `backend/`).
 - `frontend/` — Vite 5 + `vite-plugin-pwa`, MapLibre GL JS. Entry `frontend/src/main.js`.
 - Backend is the **single source of truth for risk calculations**; the frontend only renders GeoJSON.
-- Most modules are scaffolded stubs with TODOs. `docs/API.md` is a **DRAFT** — `/api/hazards` and `/api/risk-zones` are documented but **not implemented**; only `/health` is registered in `backend/app/main.py`. Don't assume docs describe working code.
+- Most modules are scaffolded stubs with TODOs. `docs/API.md` is a **DRAFT** — `/health`, `/api/data`, and `/api/hazards` are registered in `backend/app/main.py`; `/api/risk-zones` is documented but still a stub. Don't assume docs describe working code.
 
 ## Commands
 
@@ -17,7 +17,7 @@ Backend (always from `backend/` — pyproject `testpaths = ["tests"]` lives ther
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt   # both files needed
 uvicorn app.main:app --reload        # :8000, docs at /docs
-pytest                               # 5 tests, ~0.5s
+pytest                               # 15 tests
 pytest tests/test_db.py -k rainfall  # single focused run
 ```
 
@@ -34,7 +34,7 @@ npm run build   # this is the CI gate
 
 ## Gotchas
 
-- Dependencies use **`httpx2`, not `httpx`** (Starlette's `TestClient` now expects httpx2; `httpx2>=0.28.0` resolves to 2.x). Don't "fix" it back to `httpx`.
+- HTTP deps need **both `httpx` and `httpx2`**: the ingestion code and tests do `import httpx` (installed via `httpx>=0.27.0`), while Starlette's `TestClient` (fastapi) prefers `httpx2` and deprecates plain `httpx`. Omitting `httpx` breaks CI with `ModuleNotFoundError: No module named 'httpx'`.
 - Missing `pytest-asyncio` (i.e. skipping `requirements-dev.txt`) causes `Unknown config option: asyncio_mode` warnings.
 - Database is **stdlib `sqlite3`, not SQLAlchemy** — `docs/ARCHITECTURE.md` still says SQLAlchemy; trust the code.
   - File: `backend/safegrid.db` (gitignored). Tests use `Database(db_path=":memory:")` (one shared connection).
