@@ -7,7 +7,7 @@ SafeGrid — academic disaster-preparedness platform. Two independent halves; **
 - `backend/` — Python 3.11+, FastAPI, stdlib SQLite. Entry point `backend/app/main.py` (run from `backend/`).
 - `frontend/` — Vite 5 + `vite-plugin-pwa`, MapLibre GL JS. Entry `frontend/src/main.js`.
 - Backend is the **single source of truth for risk calculations**; the frontend only renders GeoJSON.
-- Most modules are scaffolded stubs with TODOs. `docs/API.md` is a **DRAFT** — `/api/hazards` and `/api/risk-zones` are documented but **not implemented**; only `/health` is registered in `backend/app/main.py`. Don't assume docs describe working code.
+- Most modules are scaffolded stubs with TODOs. `docs/API.md` is a **DRAFT** — `/health`, `/api/data`, and `/api/hazards` are registered in `backend/app/main.py`; `/api/risk-zones` is documented but still a stub. Don't assume docs describe working code.
 
 ## Commands
 
@@ -17,7 +17,7 @@ Backend (always from `backend/` — pyproject `testpaths = ["tests"]` lives ther
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt   # both files needed
 uvicorn app.main:app --reload        # :8000, docs at /docs
-pytest                               # 5 tests, ~0.5s
+pytest                               # 15 tests
 pytest tests/test_db.py -k rainfall  # single focused run
 ```
 
