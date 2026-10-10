@@ -6,8 +6,10 @@ export function renderHazardMarkers(map, hazards, onSelectHazard) {
   let modCount = 0;
   let lowCount = 0;
 
-  (hazards ?? []).forEach((hazard) => {
-    // Skip hazards missing valid coordinates instead of placing at fallback defaults
+  const hazardList = Array.isArray(hazards) ? hazards : [];
+
+  hazardList.forEach((hazard) => {
+    // Skip hazards missing valid coordinates instead of plotting at default fallbacks
     if (typeof hazard?.latitude !== 'number' || typeof hazard?.longitude !== 'number') {
       return;
     }
@@ -23,7 +25,8 @@ export function renderHazardMarkers(map, hazards, onSelectHazard) {
     el.className = 'hazard-marker';
     el.style.backgroundColor = markerColor;
 
-    const isLive = hazard?.is_live ?? true;
+    // Supports per-hazard is_live, defaulting to true unless explicitly stamped false
+    const isLive = hazard?.is_live !== false;
     const recordedAt = hazard?.recorded_at ? new Date(hazard.recorded_at).toLocaleTimeString() : 'Recently';
     const statusBadge = isLive
       ? '<span style="color: #22c55e; font-weight: bold; font-size: 11px;">● LIVE DATA</span>'
