@@ -1,0 +1,173 @@
+import test, { beforeEach } from "node:test";
+import assert from "node:assert/strict";
+import "fake-indexeddb/auto";
+
+import {
+  saveRiskZones,
+  getLastKnownRiskZones,
+  getDataAge,
+  clearRiskZones,
+  RISK_ZONES_STORE_KEY,
+} from "../src/offline/storage.js";
+
+const originalIndexedDB = globalThis.indexedDB;
+
+function sampleZones(level = "HIGH") {
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: { risk_level: level, severity_score: 3 },
+        geometry: {
+          type: "Polygon",
+          coordinates: [
+            [
+              [77.5, 12.9],
+              [77.6, 12.9],
+              [77.6, 13.0],
+              [77.5, 13.0],
+              [77.5, 12.9],
+            ],
+          ],
+        },
+      },
+    ],
+  };
+}
+
+function withoutIndexedDB() {
+  globalThis.indexedDB = undefined;
+}
+
+function restoreIndexedDB() {
+  globalThis.indexedDB = originalIndexedDB;
+}
+
+beforeEach(async () => {
+  restoreIndexedDB();
+  await clearRiskZones();
+});
+
+test("exports a stable store key", () => {
+  assert.equal(RISK_ZONES_STORE_KEY, "risk-zones");
+});
+
+test("returns null before any data is saved", async () => {
+  assert.equal(await getLastKnownRiskZones(), null);
+});
+
+test("reports no data age before any data is saved", async () => {
+  assert.deepEqual(await getDataAge(), { timestamp: null, isLive: false });
+});
+
+test("reads back exactly what was saved", async () => {
+  const zones = sampleZones();
+  await saveRiskZones(zones);
+  assert.deepEqual(await getLastKnownRiskZones(), zones);
+});
+
+test("does not mutate the object it is given", async () => {
+  const zones = sampleZones();
+  const before = JSON.stringify(zones);
+  await saveRiskZones(zones, new Date(), true);
+  assert.equal(JSON.stringify(zones), before);
+  assert.equal("is_live" in zones, false);
+  assert.equal("cached_at" in zones, false);
+});
+
+test("getDataAge returns a Date instance", async () => {
+  await saveRiskZones(sampleZones(), new Date("2026-01-01T00:00:00.000Z"));
+  const age = await getDataAge();
+  assert.ok(age.timestamp instanceof Date);
+});
+
+test("preserves the saved timestamp", async () => {
+  const savedAt = new Date("2026-03-15T10:30:00.000Z");
+  await saveRiskZones(sampleZones(), savedAt);
+  const age = await getDataAge();
+  assert.equal(age.timestamp.toISOString(), savedAt.toISOString());
+});
+
+test("accepts an ISO string timestamp", async () => {
+  const iso = "2026-02-02T02:02:02.000Z";
+  await saveRiskZones(sampleZones(), iso);
+  const age = await getDataAge();
+  assert.equal(age.timestamp.toISOString(), iso);
+});
+
+test("falls back to now when the timestamp is unusable", async () => {
+  const before = Date.now();
+  await saveRiskZones(sampleZones(), "not-a-real-date");
+  const after = Date.now();
+  const age = await getDataAge();
+  assert.ok(age.timestamp instanceof Date);
+  assert.ok(age.timestamp.getTime() >= before);
+  assert.ok(age.timestamp.getTime() <= after);
+});
+
+test("reports isLive true for live data", async () => {
+  await saveRiskZones(sampleZones(), new Date(), true);
+  const age = await getDataAge();
+  assert.equal(age.isLive, true);
+});
+
+test("defaults isLive to false", async () => {
+  await saveRiskZones(sampleZones());
+  const age = await getDataAge();
+  assert.equal(age.isLive, false);
+});
+
+test("re-saving replaces the previous snapshot", async () => {
+  await saveRiskZones(sampleZones("LOW"));
+  await saveRiskZones(sampleZones("HIGH"));
+  const zones = await getLastKnownRiskZones();
+  assert.equal(zones.features[0].properties.risk_level, "HIGH");
+  assert.equal(zones.features.length, 1);
+});
+
+test("re-saving updates the stored timestamp", async () => {
+  await saveRiskZones(sampleZones(), new Date("2026-01-01T00:00:00.000Z"));
+  await saveRiskZones(sampleZones(), new Date("2026-02-02T00:00:00.000Z"));
+  const age = await getDataAge();
+  assert.equal(age.timestamp.toISOString(), "2026-02-02T00:00:00.000Z");
+});
+
+test("rejects a null payload", async () => {
+  await assert.rejects(() => saveRiskZones(null), TypeError);
+});
+
+test("rejects a non-object payload", async () => {
+  await assert.rejects(() => saveRiskZones("nope"), TypeError);
+});
+
+test("rejects an array payload", async () => {
+  await assert.rejects(() => saveRiskZones([]), TypeError);
+});
+
+test("clearRiskZones removes the snapshot", async () => {
+  await saveRiskZones(sampleZones());
+  await clearRiskZones();
+  assert.equal(await getLastKnownRiskZones(), null);
+  assert.deepEqual(await getDataAge(), { timestamp: null, isLive: false });
+});
+
+test("getLastKnownRiskZones returns null without IndexedDB", async () => {
+  withoutIndexedDB();
+  assert.equal(await getLastKnownRiskZones(), null);
+});
+
+test("getDataAge is empty without IndexedDB", async () => {
+  withoutIndexedDB();
+  assert.deepEqual(await getDataAge(), { timestamp: null, isLive: false });
+});
+
+test("saveRiskZones rejects without IndexedDB", async () => {
+  withoutIndexedDB();
+  await assert.rejects(() => saveRiskZones(sampleZones()), Error);
+});
+
+test("clearRiskZones is a no-op without IndexedDB", async () => {
+  withoutIndexedDB();
+  await assert.doesNotReject(() => clearRiskZones());
+});
