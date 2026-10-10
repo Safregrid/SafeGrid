@@ -198,6 +198,88 @@ class TestDatabaseRepository(unittest.TestCase):
         self.assertIsNotNone(risk)
         self.assertEqual(risk["risk_level"], "HIGH")
 
+    # ------------------------------------------------------------------
+    # Helpers (not tests)
+    # ------------------------------------------------------------------
+    def _hazard(self, hid, ts="2026-10-07T10:00:00Z", magnitude=5.0):
+        return {"id": hid, "hazard_type": "earthquake", "source": "usgs",
+                "timestamp": ts, "latitude": 1.0, "longitude": 2.0,
+                "magnitude": magnitude}
+
+    def _risk(self, hid, level="HIGH"):
+        return {"hazard_id": hid, "risk_level": level,
+                "severity_score": 5.0, "affected_area": {}}
+
+    # P1: promise — re-saving the same id updates its values and never duplicates the row.
+    def test_resave_updates_values(self):
+        save_hazard(self._hazard("eq-20", magnitude=5.0), database=self.test_db)
+        save_hazard(self._hazard("eq-20", magnitude=6.2), database=self.test_db)
+        saved = get_hazard("eq-20", database=self.test_db)
+        self.assertEqual(saved["magnitude"], 6.2)
+        self.assertEqual(len(list_hazards(database=self.test_db)), 1)
+
+    # P1: promise — created_at is stamped once and survives a re-save.
+    def test_resave_keeps_created_at(self):
+        first = save_hazard(self._hazard("eq-21"), database=self.test_db)
+        second = save_hazard(self._hazard("eq-21", magnitude=7.0), database=self.test_db)
+        self.assertEqual(first["created_at"], second["created_at"])
+
+    # P1: promise — a hazard that does not exist cannot be rated, and no phantom rating is stored.
+    def test_risk_for_missing_hazard_is_rejected(self):
+        with self.assertRaises(Exception):
+            save_risk_result(self._risk("does-not-exist"), database=self.test_db)
+        self.assertIsNone(get_risk_result("does-not-exist", database=self.test_db))
+
+    # P1: promise — rating the same hazard twice replaces the old rating instead of adding a row.
+    def test_rerating_replaces_old_rating(self):
+        save_hazard(self._hazard("eq-22"), database=self.test_db)
+        save_risk_result(self._risk("eq-22", "HIGH"), database=self.test_db)
+        save_risk_result(self._risk("eq-22", "LOW"), database=self.test_db)
+        self.assertEqual(
+            get_risk_result("eq-22", database=self.test_db)["risk_level"], "LOW"
+        )
+        rows = list_hazards_with_risk(database=self.test_db)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["risk_level"], "LOW")
+
+    # P2: promise — unknown ids return None instead of raising.
+    def test_unknown_ids_return_none(self):
+        self.assertIsNone(get_hazard("nope", database=self.test_db))
+        self.assertIsNone(get_risk_result("nope", database=self.test_db))
+
+    # P2: promise — the hazard list always comes back newest first.
+    def test_list_hazards_newest_first(self):
+        save_hazard(self._hazard("a", ts="2026-10-07T08:00:00Z"), database=self.test_db)
+        save_hazard(self._hazard("c", ts="2026-10-07T10:00:00Z"), database=self.test_db)
+        save_hazard(self._hazard("b", ts="2026-10-07T09:00:00Z"), database=self.test_db)
+        ids = [h["id"] for h in list_hazards(database=self.test_db)]
+        self.assertEqual(ids, ["c", "b", "a"])
+
+    # P2: promise — the limit argument caps how many rows come back.
+    def test_list_hazards_respects_limit(self):
+        for hour in range(5):
+            save_hazard(
+                self._hazard(f"lim-{hour}", ts=f"2026-10-07T0{hour}:00:00Z"),
+                database=self.test_db,
+            )
+        self.assertEqual(len(list_hazards(limit=2, database=self.test_db)), 2)
+        self.assertEqual(
+            len(list_hazards_with_risk(limit=3, database=self.test_db)), 3
+        )
+
+    # P2: promise — garbage input fails loudly with ValueError, not a database error.
+    def test_bad_input_type_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            save_hazard("hello", database=self.test_db)
+        with self.assertRaises(ValueError):
+            save_risk_result(123, database=self.test_db)
+
+    # P2: promise — initializing the schema a second time is safe and keeps existing data.
+    def test_init_db_twice_keeps_data(self):
+        save_hazard(self._hazard("eq-30"), database=self.test_db)
+        init_db(database=self.test_db)
+        self.assertIsNotNone(get_hazard("eq-30", database=self.test_db))
+
 
 if __name__ == "__main__":
     unittest.main()
