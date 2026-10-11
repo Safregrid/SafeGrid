@@ -13,21 +13,28 @@ ingestion or Person 4's database layer) and calculates:
 4. Contextual summary, compounding factors, and threshold explanations
 
 Scientific Threshold Justifications:
-- Hourly precipitation thresholds based on UK Met Office & WMO guidelines:
-    - Light: < 2.5 mm/h (Score < 4.0 -> LOW)
-    - Moderate: 2.5 - 7.6 mm/h (Score 4.0 - 6.9 -> MODERATE)
-    - Heavy: 7.6 - 15.0 mm/h (Score 7.0 - 8.5 -> HIGH)
-    - Violent / Torrential: > 15.0 mm/h (Score 8.5 - 10.0 -> HIGH)
-- 24-Hour accumulation thresholds based on IMD / NOAA standards:
+- Hourly precipitation thresholds follow the India Meteorological Department (IMD)
+  rainfall spell-rate classification (IMD expresses intensity as a spell rate in
+  cm/h; 1 cm = 10 mm):
+    - Light spell: < 1 cm/h (< 10 mm/h) -> LOW (Score 0.0 - 3.9)
+    - Moderate spell: 1 - 2 cm/h (10 - 20 mm/h) -> MODERATE (Score 4.0 - 6.9)
+    - Intense spell: 2 - 3 cm/h (20 - 30 mm/h) -> HIGH (Score 7.0 - 8.4)
+    - Very intense spell: 3 - 5 cm/h (30 - 50 mm/h) -> HIGH (Score 8.5 - 9.4)
+    - Extremely intense spell: 5 - 10 cm/h (50 - 100 mm/h) -> HIGH (Score 9.5 - 10.0)
+    - Cloudburst: > 10 cm/h (> 100 mm/h) -> HIGH (Score 10.0)
+- 24-Hour accumulation thresholds follow the India Meteorological Department (IMD)
+  standard rainfall classification:
     - Light: < 15.5 mm / 24h (LOW)
     - Moderate: 15.6 - 64.4 mm / 24h (MODERATE)
     - Heavy: 64.5 - 115.5 mm / 24h (HIGH)
     - Very heavy: > 115.5 mm / 24h (HIGH)
+- Weather codes are the WMO weather interpretation codes (WW, WMO-No. 306) as
+  returned by Open-Meteo; IMD, as a WMO member, uses the same synoptic codes.
 - Compounding factors (Open-Meteo meteorological parameters):
     - Wind gusts >= 65 km/h or sustained speed >= 50 km/h: adds power-line /
       infrastructure failure hazard modifier (+1.5 score).
     - Moderate wind gusts >= 45 km/h: (+0.8 modifier).
-    - WMO Convective Storm codes (95, 96, 99: Thunderstorms; 82: Violent showers):
+    - WMO Convective Storm codes (95, 96, 97, 99: Thunderstorms; 82: Violent showers):
       imposes a HIGH risk floor (score >= 7.0).
 
 MANDATORY SAFETY RULE:
@@ -44,13 +51,6 @@ import json
 import math
 import sys
 from typing import Any, Optional
-
-# Ensure UTF-8 output on Windows consoles
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
 
 
 @dataclass
@@ -85,20 +85,38 @@ class PrecipitationRiskResult:
         return asdict(self)
 
 
-# WMO Weather Interpretation Codes relevant to precipitation & convective storms
+# WMO Weather Interpretation Codes (WW) as returned by Open-Meteo's weather_code
+# field (source: WMO-No. 306 / Open-Meteo docs). IMD, as a WMO member, uses the
+# same synoptic codes. Descriptions updated for accuracy on 2026-10-11.
 WMO_DESCRIPTIONS: dict[int, str] = {
     0: "Clear sky",
+    1: "Mainly clear",
+    2: "Partly cloudy",
+    3: "Overcast",
+    45: "Fog",
+    48: "Depositing rime fog",
     51: "Light drizzle",
     53: "Moderate drizzle",
     55: "Dense drizzle",
+    56: "Light freezing drizzle",
+    57: "Dense freezing drizzle",
     61: "Slight rain",
     63: "Moderate rain",
     65: "Heavy rain",
+    66: "Light freezing rain",
+    67: "Heavy freezing rain",
+    71: "Slight snowfall",
+    73: "Moderate snowfall",
+    75: "Heavy snowfall",
+    77: "Snow grains",
     80: "Slight rain showers",
     81: "Moderate rain showers",
     82: "Violent rain showers",
-    95: "Thunderstorm (slight or moderate)",
+    85: "Slight snow showers",
+    86: "Heavy snow showers",
+    95: "Thunderstorm",
     96: "Thunderstorm with slight hail",
+    97: "Heavy thunderstorm",
     99: "Thunderstorm with heavy hail",
 }
 
@@ -171,23 +189,35 @@ def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskR
 
     # 1. Base score derived from precipitation intensity
     if window == 1:
-        # Hourly rate (mm/h)
-        if precip < 2.5:
-            # Light rain
-            base_score = (precip / 2.5) * 3.5
-            factors.append(f"Precipitation of {precip:.1f} mm/h is classified as light.")
-        elif precip < 7.6:
-            # Moderate rain
-            base_score = 4.0 + ((precip - 2.5) / (7.6 - 2.5)) * 2.5
-            factors.append(f"Precipitation of {precip:.1f} mm/h is moderate.")
-        elif precip < 15.0:
-            # Heavy rain
-            base_score = 7.0 + ((precip - 7.6) / (15.0 - 7.6)) * 1.5
-            factors.append(f"Precipitation of {precip:.1f} mm/h is heavy.")
+        # Hourly intensity (mm/h) — IMD rainfall spell-rate classification,
+        # expressed in cm/h by IMD and converted to mm/h (1 cm = 10 mm).
+        if precip < 10.0:
+            # Light spell (< 1 cm/h)
+            base_score = (precip / 10.0) * 3.9
+            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is a light spell (< 1 cm/h).")
+        elif precip < 20.0:
+            # Moderate spell (1 - 2 cm/h)
+            base_score = 4.0 + ((precip - 10.0) / 10.0) * 2.9
+            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is a moderate spell (1 - 2 cm/h).")
+        elif precip < 30.0:
+            # Intense spell (2 - 3 cm/h)
+            base_score = 7.0 + ((precip - 20.0) / 10.0) * 1.4
+            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is an intense spell (2 - 3 cm/h).")
+        elif precip < 50.0:
+            # Very intense spell (3 - 5 cm/h)
+            base_score = 8.5 + ((precip - 30.0) / 20.0) * 0.9
+            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is a very intense spell (3 - 5 cm/h).")
+        elif precip < 100.0:
+            # Extremely intense spell (5 - 10 cm/h)
+            base_score = 9.5 + ((precip - 50.0) / 50.0) * 0.5
+            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is an extremely intense spell (5 - 10 cm/h).")
         else:
-            # Torrential / Violent rain, >15.0 mm/h
-            base_score = 8.5 + min(1.5, ((precip - 15.0) / 15.0) * 1.5)
-            factors.append(f"Precipitation of {precip:.1f} mm/h is torrential, high flash-flood risk.")
+            # Cloudburst (> 10 cm/h)
+            base_score = 10.0
+            factors.append(
+                f"Hourly precipitation of {precip:.1f} mm/h exceeds the IMD cloudburst "
+                f"threshold (10 cm/h) — extreme flash-flood risk."
+            )
     else:
         # 24-Hour accumulation (mm/24h)
         if precip < 15.5:
@@ -224,7 +254,7 @@ def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskR
     # 3. Compounding Factor: WMO Weather Code (Thunderstorms / Violent Showers)
     if data.weather_code is not None:
         code_desc = WMO_DESCRIPTIONS.get(data.weather_code, f"Code {data.weather_code}")
-        if data.weather_code in (95, 96, 99):  # Thunderstorms
+        if data.weather_code in (95, 96, 97, 99):  # Thunderstorms
             score = max(score + 1.0, 7.0)  # Thunderstorms elevate risk floor to HIGH
             factors.append(f"Severe weather code: {code_desc} (WMO {data.weather_code}) imposes HIGH risk floor.")
         elif data.weather_code == 82:  # Violent rain showers
@@ -435,6 +465,13 @@ def process_precipitation_hazard(hazard: dict[str, Any] | str | Any) -> dict[str
 
 
 def main() -> None:
+    # UTF-8 output so emoji badges render on Windows consoles (CLI entry only).
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     raw_input: Optional[str] = None
 
     # Check command-line argument
