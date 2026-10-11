@@ -168,8 +168,9 @@ Full 10-item review of `backend/app/risk/`: 2 blockers, 3 must-fix, 5 cleanup.
 ### Git state (EOD)
 
 - Committed & pushed: `164280c` (docs RISK_MODEL), `b6f0935` (session_log).
+- 🟢 **Pushed (EOD):** `9586f36` (classifier.py type mapping), `874fdd8` (rain.py IMD spell-rate hourly + WMO codes), `cfcdcff` (RISK_MODEL.md IMD hourly + mapping change-log row).
 - Committed, **not pushed**: `11ffb82` merge of `origin/main` into `feature/risk-engine` (branch ahead of `origin/feature/risk-engine` by 25).
-- Uncommitted (pending Person 2 approval before commit): `backend/app/risk/classifier.py` (mapping), `backend/app/risk/rain.py` (#7 + IMD hourly + WMO table), `docs/RISK_MODEL.md` (IMD hourly).
+- Uncommitted (pending Person 2 approval before commit): none.
 - Untracked: `.opencode/` (`rules.md`, `session-logging.md`, `scripts/session_digest.py`), `opencode.json`, `test.py`, `test1.py`.
 - `main` = `7362ac7` = `origin/main` (up to date).
 
