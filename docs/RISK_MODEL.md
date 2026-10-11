@@ -42,21 +42,27 @@ Normalized from the Open-Meteo hourly weather feed:
 
 ### 2. Hourly Precipitation Thresholds (Window = 1 Hour)
 
+The hourly intensity bands follow the **India Meteorological Department (IMD)** rainfall *spell-rate* classification. IMD expresses hourly intensity as a spell rate in cm/h; converted to mm/h (1 cm = 10 mm):
+
 | Risk Level | Precipitation Rate | Severity Score | Justification | Source | Known Limitations |
 |---|---|---|---|---|---|
-| **🟢 LOW** | `< 2.5 mm/h` | `0.0 – 3.9` | Light rain / drizzle. Standard municipal drainage absorbs runoff without structural grid stress. | UK Met Office & WMO classification | Localized clogged drains or poor urban topography may still produce minor pooling. |
-| **🟡 MODERATE** | `2.5 – 7.6 mm/h` | `4.0 – 6.9` | Moderate rain. Runoff begins to accumulate on roadways; drainage systems experience moderate loading. | UK Met Office & WMO guidelines | Ground saturation prior to rainfall not accounted for without soil moisture data. |
-| **🔴 HIGH** | `7.6 – 15.0 mm/h` | `7.0 – 8.4` | Heavy rain. Significant surface water accumulation, road flooding, and waterlogging risks. | UK Met Office / WMO standards | Duration of intensity is crucial; brief cloudbursts differ from sustained downpours. |
-| **🔴 HIGH (Violent)** | `> 15.0 mm/h` | `8.5 – 10.0` | Torrential / violent rain. High immediate risk of flash flooding, severe infrastructure disruption. | WMO violent shower threshold | Runoff velocity depends strongly on local urban slope and surface impermeability. |
+| **🟢 LOW** | `< 10 mm/h` | `0.0 – 3.9` | IMD **Light spell** (< 1 cm/h). Standard municipal drainage absorbs runoff. | India Meteorological Department (IMD) | Localized clogged drains or poor urban topography may still produce minor pooling. |
+| **🟡 MODERATE** | `10 – 20 mm/h` | `4.0 – 6.9` | IMD **Moderate spell** (1–2 cm/h). Runoff accumulates on roadways; drainage systems under moderate loading. | India Meteorological Department (IMD) | Ground saturation prior to rainfall not accounted for without soil moisture data. |
+| **🔴 HIGH** | `20 – 30 mm/h` | `7.0 – 8.4` | IMD **Intense spell** (2–3 cm/h). Significant surface water accumulation and localized flooding. | India Meteorological Department (IMD) | Duration of intensity is crucial; brief bursts differ from sustained downpours. |
+| **🔴 HIGH** | `30 – 50 mm/h` | `8.5 – 9.4` | IMD **Very intense spell** (3–5 cm/h). High risk of waterlogging and grid disruption. | India Meteorological Department (IMD) | Runoff velocity depends on slope and urban impermeability. |
+| **🔴 HIGH** | `50 – 100 mm/h` | `9.5 – 10.0` | IMD **Extremely intense spell** (5–10 cm/h). Severe flash-flood and infrastructure risk. | India Meteorological Department (IMD) | Real-time gauge/radar data needed to distinguish intense bursts from sustained rates. |
+| **🔴 HIGH (Cloudburst)** | `> 100 mm/h` | `10.0` | IMD **Cloudburst** (> 10 cm/h). Extreme flash-flood potential. | India Meteorological Department (IMD) | Cloudbursts are highly localized; forecast grid resolution may miss peak intensity. |
 
 ### 3. 24-Hour Accumulated Rainfall Thresholds (Window = 24 Hours)
 
+The 24-hour accumulation bands follow the **India Meteorological Department (IMD)** official rainfall classification (Light `2.5–15.5 mm`, Moderate `15.6–64.4 mm`, Heavy `64.5–115.5 mm`, Very Heavy `115.6–204.4 mm`, Extremely Heavy `≥ 204.5 mm`). SafeGrid maps the upper IMD bands onto its three-level scheme: IMD *Light* → 🟢 LOW, IMD *Moderate* → 🟡 MODERATE, IMD *Heavy* → 🔴 HIGH, IMD *Very Heavy* / *Extremely Heavy* → 🔴 HIGH.
+
 | Risk Level | Accumulation (mm/24h) | Severity Score | Justification | Source |
 |---|---|---|---|---|
-| **🟢 LOW** | `< 15.5 mm` | `0.0 – 3.9` | Light rainfall. Insignificant catchment saturation. | IMD / NOAA standards |
-| **🟡 MODERATE** | `15.5 – 64.4 mm` | `4.0 – 6.9` | Moderate rainfall. Prolonged soaking leads to rising water tables and localized pooling. | IMD standard rainfall criteria |
-| **🔴 HIGH** | `64.5 – 115.5 mm` | `7.0 – 8.4` | Heavy rainfall. High likelihood of regional waterlogging and drainage overwhelm. | IMD heavy rainfall classification |
-| **🔴 HIGH (Very Heavy)**| `> 115.5 mm` | `8.5 – 10.0` | Very heavy to extremely heavy rainfall. Severe flood inundation potential. | IMD very heavy rainfall classification |
+| **🟢 LOW** | `< 15.5 mm` | `0.0 – 3.9` | Light rainfall. Insignificant catchment saturation. | India Meteorological Department (IMD) / NOAA standards |
+| **🟡 MODERATE** | `15.5 – 64.4 mm` | `4.0 – 6.9` | Moderate rainfall. Prolonged soaking leads to rising water tables and localized pooling. | India Meteorological Department (IMD) standard rainfall criteria |
+| **🔴 HIGH** | `64.5 – 115.5 mm` | `7.0 – 8.4` | Heavy rainfall. High likelihood of regional waterlogging and drainage overwhelm. | India Meteorological Department (IMD) heavy rainfall classification |
+| **🔴 HIGH (Very Heavy)**| `> 115.5 mm` | `8.5 – 10.0` | Very heavy to extremely heavy rainfall. Severe flood inundation potential. | India Meteorological Department (IMD) very heavy rainfall classification |
 
 ### 4. Compounding Factors
 
@@ -92,3 +98,5 @@ Green / Low Risk indicates low hazard relative to threshold; it must **NEVER** b
 | Date | Change | Author |
 |---|---|---|
 | 2026-10-08 | Document rainfall/weather thresholds, compounding factors, and affected-area scaling (justifications moved from `rain.py`) | Person 2 |
+| 2026-10-11 | Switch hourly bands to IMD spell-rate classification (10/20/30/50/100 mm/h); attribute 24-hour bands to IMD; expand weather-code table to the full WMO WW set (incl. code 97) | Person 2 |
+| 2026-10-11 | Add provider `data_type` → canonical `hazard_type` mapping (`weather`→`rainfall`, `seismic`→`earthquake`); `identify_hazard()` skips unmapped labels. Pushed `classifier.py` + `rain.py` + this doc | Person 2 |
