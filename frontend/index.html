@@ -3,24 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="SafeGrid — National Disaster Preparedness & Emergency Response System" />
-    <title>SafeGrid — National Hazard & Emergency Portal</title>
+    <meta name="description" content="SafeGrid — academic disaster preparedness platform and geographic risk visualization" />
+    <title>SafeGrid — Disaster Preparedness & Risk Visualization</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app">
-      <!-- Official Government Style Top Bar -->
+      <!-- Academic Project Header -->
       <header class="gov-header">
         <div class="gov-title-container">
           <div class="gov-emblem">🛡️</div>
           <div>
-            <h1 class="gov-title">SAFEGRID DISASTER MANAGEMENT AUTHORITY</h1>
-            <p class="gov-subtitle">National Real-Time Emergency & Hazard Response Portal</p>
+            <h1 class="gov-title">SafeGrid — Hazard Risk Map</h1>
+            <p class="gov-subtitle">Academic Disaster Preparedness Platform</p>
           </div>
         </div>
         <div class="gov-meta">
-          <span class="system-status"><span class="status-dot"></span> SYSTEM ONLINE</span>
-          <a href="http://localhost:8000/docs" target="_blank" class="api-docs-link">API Gateway Docs</a>
+          <span id="connection-status" class="system-status cached">
+            <span class="status-dot"></span> <span id="status-text">CONNECTING...</span>
+          </span>
+          <a href="http://localhost:8000/docs" target="_blank" class="api-docs-link">Backend API Docs</a>
         </div>
       </header>
 
@@ -29,10 +31,10 @@
         <!-- Fullscreen Map Base -->
         <div id="map"></div>
 
-        <!-- Overlaid Emergency Control Panel -->
+        <!-- Overlaid Control Panel -->
         <aside class="control-panel">
           <div class="panel-section">
-            <h2 class="panel-heading">Active Hazard Overview</h2>
+            <h2 class="panel-heading">Active Risk Zones</h2>
             <div class="threat-counters">
               <div class="counter-card high">
                 <span class="counter-num" id="count-high">0</span>
@@ -52,12 +54,12 @@
           <div class="panel-section">
             <h3 class="section-title">Hazard Information Feed</h3>
             <div id="hazard-details-card" class="details-card">
-              <p class="details-placeholder">Click any marker or risk zone on the map to inspect full telemetry data.</p>
+              <p class="details-placeholder">Click any marker or risk zone on the map to inspect hazard data.</p>
             </div>
           </div>
 
           <div class="panel-footer">
-            <p class="footer-note">Official Use Only | SafeGrid Operations Center</p>
+            <p class="footer-note">Academic Project | Not a certified emergency service | LOW risk does not imply safety</p>
           </div>
         </aside>
       </div>

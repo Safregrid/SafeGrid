@@ -27,18 +27,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       addRiskZoneLayer(map, null);
 
-      const [hazards, riskZonesGeoJSON] = await Promise.all([
+      const [hazardPayload, riskZonesGeoJSON] = await Promise.all([
         fetchHazards().catch(err => {
           console.warn('Hazards fetch failed:', err);
-          return [];
+          return null;
         }),
         fetchRiskZones().catch(err => {
-          console.warn('Risk zones fetch failed:', err);
+          console.warn('Risk zones fetch failed (endpoint stub or offline):', err);
           return null;
         })
       ]);
 
-      console.log(`Loaded ${hazards?.length ?? 0} hazard records.`);
+      // Update telemetry connection badge (live vs cached vs offline)
+      const statusPill = document.getElementById('connection-status');
+      const statusText = document.getElementById('status-text');
+      if (hazardPayload) {
+        if (statusPill && statusText) {
+          if (hazardPayload.is_live) {
+            statusPill.className = 'system-status live';
+            statusText.textContent = 'LIVE DATA';
+          } else {
+            statusPill.className = 'system-status cached';
+            statusText.textContent = 'CACHED DATA';
+          }
+        }
+      } else if (statusPill && statusText) {
+        statusPill.className = 'system-status offline';
+        statusText.textContent = 'API UNAVAILABLE';
+      }
+
+      const hazards = hazardPayload?.hazards ?? [];
+      console.log(`Loaded ${hazards.length} hazard records.`);
 
       renderHazardMarkers(map, hazards, (selectedHazard) => {
         if (typeof selectedHazard?.latitude === 'number' && typeof selectedHazard?.longitude === 'number') {

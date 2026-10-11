@@ -2,13 +2,17 @@
  * SafeGrid backend API client.
  * Person 3 owns this file.
  * Person 4's Service Worker will intercept these fetch calls for caching.
+ *
+ * All API calls go through this module — do not inline fetch() calls
+ * in UI components.
  */
 
 const BASE_URL = "/api";
 
 /**
  * Fetches active hazards from the backend.
- * Unwraps data if Person 1 returns an envelope object {"hazards": [...]}.
+ * Contract: returns { is_live: boolean, hazards: Hazard[] }
+ * Throws on network failure without falling back to local mocks.
  */
 export async function fetchHazards() {
   const response = await fetch(`${BASE_URL}/hazards`);
@@ -16,15 +20,16 @@ export async function fetchHazards() {
     throw new Error(`Failed to fetch hazards: ${response.status}`);
   }
   const data = await response.json();
-  // Envelope check: Handles both {"hazards": [...]} and bare [...]
-  if (data && Array.isArray(data.hazards)) {
-    return data.hazards;
-  }
-  return Array.isArray(data) ? data : [];
+  return {
+    is_live: Boolean(data?.is_live),
+    hazards: Array.isArray(data?.hazards) ? data.hazards : []
+  };
 }
 
 /**
  * Fetches GeoJSON risk zones from the backend.
+ * Returns GeoJSON FeatureCollection.
+ * Throws on failure (e.g. 404 stub) without fabricating data.
  */
 export async function fetchRiskZones() {
   const response = await fetch(`${BASE_URL}/risk-zones`);
