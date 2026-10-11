@@ -24,19 +24,42 @@ from app.models.hazard import Hazard, RiskResult
 from app.risk import rain
 
 
+# Provider-specific data_type labels -> SafeGrid's canonical hazard_type vocabulary.
+# Providers name things their own way (Open-Meteo feeds precipitation under
+# data_type="weather"); this table is the single place that translates them.
+# Agree new entries with Person 1 and document them in docs/RISK_MODEL.md.
+RAW_TYPE_TO_HAZARD_TYPE: dict[str, str] = {
+    "weather": "rainfall",    # Open-Meteo hourly precipitation/weather feed
+    "seismic": "earthquake",  # USGS earthquake feed (when implemented)
+}
+
+
+def map_data_type_to_hazard_type(data_type: str) -> str | None:
+    """
+    Translates a provider's raw data_type label into SafeGrid's canonical
+    hazard_type. Returns None for an unrecognised label so callers can skip
+    records we do not yet classify instead of raising.
+    """
+    return RAW_TYPE_TO_HAZARD_TYPE.get(data_type)
+
+
 def identify_hazard(data: DataRecord) -> Hazard | None:
     """
     Identifies whether a raw provider DataRecord constitutes an active/potential Hazard.
 
+    The provider's data_type label is translated to a canonical hazard_type via
+    RAW_TYPE_TO_HAZARD_TYPE. Records whose label is not mapped are skipped
+    (returns None) rather than raising.
+
     TODO: Person 2 defines hazard identification rules/thresholds in docs/RISK_MODEL.md.
-    TODO: the hazard_type mapping (e.g. "weather" -> "rainfall") must be agreed
-          between Person 1 and Person 2 so identify_hazard output feeds classify().
     """
-    # Placeholder: convert DataRecord into a Hazard if hazardous conditions exist.
-    # To be implemented by Person 2 based on RISK_MODEL.md thresholds.
+    hazard_type = map_data_type_to_hazard_type(data.data_type)
+    if hazard_type is None:
+        return None
+
     return Hazard(
         id=data.id,
-        hazard_type=data.data_type,
+        hazard_type=hazard_type,
         source=data.source,
         timestamp=data.timestamp,
         location=data.location,
