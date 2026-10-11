@@ -13,7 +13,7 @@
 - **Last updated:** 2026-10-11
 - **Branch:** `feature/risk-engine` — 25 ahead of `origin/feature/risk-engine` (merge `11ffb82` is local-only)
 - **Subsystem:** `backend/app/risk/` (rainfall engine implemented; earthquake pending)
-- **Working tree:** committed `164280c` (RISK_MODEL docs) + `b6f0935` (session_log), both **pushed**. **Uncommitted:** `classifier.py` (type mapping), `rain.py` (#7 + IMD hourly), `docs/RISK_MODEL.md` (IMD hourly). Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+- **Working tree:** committed & pushed `164280c` (RISK_MODEL docs), `b6f0935` (session_log), `9586f36` (classifier.py mapping), `874fdd8` (rain.py IMD hourly), `cfcdcff` (RISK_MODEL IMD hourly + change log). **Uncommitted:** none. Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
   - Standing permission (2026-10-11): Person 2 grants commit/push of `session_log.md` at will — **this file only**.
 - **Blocker 1 closed (uncommitted):** `RAW_TYPE_TO_HAZARD_TYPE` + `map_data_type_to_hazard_type()` map provider labels (`weather→rainfall`, `seismic→earthquake`); `identify_hazard()` returns `None` for unmapped. Full chain verified: `DataRecord(weather) → classify()` → HIGH/10.0.
 - **Hourly thresholds now IMD spell-rate (uncommitted):** bands 10/20/30/50/100 mm/h; `WMO_DESCRIPTIONS` = full 27-code WMO-No. 306 table; HIGH floor `82/95/96/97/99`. `pytest`: 15 passed.
