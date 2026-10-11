@@ -15,16 +15,98 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from app.db.models import HAZARDS_TABLE_SQL, INDEXES_SQL, RISK_RESULTS_TABLE_SQL
+from app.db.models import (
+    DATA_RECORDS_TABLE_SQL,
+    HAZARDS_TABLE_SQL,
+    INDEXES_SQL,
+    RISK_RESULTS_TABLE_SQL,
+)
 from app.db.session import Database, db
 
 
 def init_db(database: Database = db) -> None:
     """Creates database tables and indexes if they do not already exist."""
     with database.get_connection() as conn:
+        conn.execute(DATA_RECORDS_TABLE_SQL)
         conn.execute(HAZARDS_TABLE_SQL)
         conn.execute(RISK_RESULTS_TABLE_SQL)
         conn.executescript(INDEXES_SQL)
+
+
+def save_data_record(record: Any, database: Database = db) -> dict:
+    """
+    Saves or updates a normalized DataRecord in the database.
+
+    Accepts either a Pydantic DataRecord model or a plain dict.
+    """
+    if hasattr(record, "model_dump"):
+        data = record.model_dump()
+    elif isinstance(record, dict):
+        data = record.copy()
+    else:
+        raise ValueError(f"Unsupported record type: {type(record)}")
+
+    if "location" in data and isinstance(data["location"], dict):
+        coords = data["location"].get("coordinates", [0.0, 0.0])
+        lon, lat = coords[0], coords[1]
+    else:
+        lat = data.get("latitude", 0.0)
+        lon = data.get("longitude", 0.0)
+
+    ts = data.get("timestamp")
+    ts_str = ts.isoformat() if isinstance(ts, datetime) else str(ts)
+    specific_data_json = json.dumps(data.get("specific_data", {}))
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    with database.get_connection() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO data_records (
+                id, data_type, source, timestamp, latitude, longitude,
+                magnitude, probability, specific_data, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, (
+            data["id"],
+            data.get("data_type", "unknown"),
+            data.get("source", "unknown"),
+            ts_str,
+            lat,
+            lon,
+            data.get("magnitude"),
+            data.get("probability"),
+            specific_data_json,
+            created_at
+        ))
+
+    return get_data_record(data["id"], database=database)  # type: ignore[return-value]
+
+
+def get_data_record(record_id: str, database: Database = db) -> dict | None:
+    """Fetches a single data record by ID. Returns None if not found."""
+    with database.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM data_records WHERE id = ?;", (record_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        res = dict(row)
+        res["specific_data"] = json.loads(res.get("specific_data") or "{}")
+        return res
+
+
+def list_data_records(limit: int = 50, database: Database = db) -> list[dict]:
+    """Fetches the latest provider data records, sorted from newest to oldest."""
+    with database.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM data_records ORDER BY timestamp DESC LIMIT ?;", (limit,)
+        )
+        results = []
+        for row in cursor.fetchall():
+            item = dict(row)
+            item["specific_data"] = json.loads(item.get("specific_data") or "{}")
+            results.append(item)
+        return results
 
 
 def save_hazard(hazard: Any, database: Database = db) -> dict:
@@ -63,12 +145,24 @@ def save_hazard(hazard: Any, database: Database = db) -> dict:
     created_at = datetime.now(timezone.utc).isoformat()
 
     with database.get_connection() as conn:
+        # Upsert (ON CONFLICT DO UPDATE), NOT INSERT OR REPLACE:
+        # REPLACE deletes the old hazards row, and ON DELETE CASCADE would
+        # delete the linked risk_results row. Updating in place keeps the rating.
         conn.execute("""
-            INSERT OR REPLACE INTO hazards (
+            INSERT INTO hazards (
                 id, hazard_type, source, timestamp, latitude, longitude,
                 magnitude, probability, specific_data, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                hazard_type = excluded.hazard_type,
+                source = excluded.source,
+                timestamp = excluded.timestamp,
+                latitude = excluded.latitude,
+                longitude = excluded.longitude,
+                magnitude = excluded.magnitude,
+                probability = excluded.probability,
+                specific_data = excluded.specific_data;
         """, (
             data["id"],
             data.get("hazard_type", "unknown"),
@@ -77,7 +171,7 @@ def save_hazard(hazard: Any, database: Database = db) -> dict:
             lat,
             lon,
             data.get("magnitude"),        # earthquake magnitude or storm strength
-            data.get("probability"),      # rainfall probability 0.0–1.0
+            data.get("probability"),      # rainfall probability 0 to 100%
             specific_data_json,           # source-specific JSON extras
             created_at
         ))
