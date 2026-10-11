@@ -11,15 +11,15 @@
 ## Current State (quick reference)
 
 - **Last updated:** 2026-10-11
-- **Branch:** `feature/risk-engine`
+- **Branch:** `feature/risk-engine` — 25 ahead of `origin/feature/risk-engine` (merge `11ffb82` is local-only)
 - **Subsystem:** `backend/app/risk/` (rainfall engine implemented; earthquake pending)
-- **Working tree:** risk engine committed through `164280c`; `session_log.md` now tracked & committed
-  - Decision (2026-10-11): `session_log.md` is **tracked in the repo**; Person 2 granted express permission to commit/push it at will (this file only).
-- **Completed (2026-10-11):** `164280c` published `docs/RISK_MODEL.md` (rainfall thresholds + change log) to GitHub. `rain.py` import-time `stdout.reconfigure()` moved into `main()` (uncommitted).
-- **Branch vs `main`:** local `feature/risk-engine` (`164280c`) is **merged into `main`**, but `main` has advanced past it. Local tree is **behind `main`**.
-- **Next up (integration):** reconcile risk engine with the new 3-tier flow — implement `identify_hazard()` thresholds + agree `data_type -> hazard_type` mapping with Person 1 so `classify()` stops raising on real Open-Meteo data. Then earthquake engine.
-- **Known issue (uncommitted, not ours):** `classifier.py` has `hazard_type == "precipitation"` (was `"rainfall"`) — unexplained local edit; must be reviewed before merge.
-- **Reminder:** Push all work to GitHub before ending the day; produce a short WhatsApp summary for the team.
+- **Working tree:** committed `164280c` (RISK_MODEL docs) + `b6f0935` (session_log), both **pushed**. **Uncommitted:** `classifier.py` (type mapping), `rain.py` (#7 + IMD hourly), `docs/RISK_MODEL.md` (IMD hourly). Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+  - Standing permission (2026-10-11): Person 2 grants commit/push of `session_log.md` at will — **this file only**.
+- **Blocker 1 closed (uncommitted):** `RAW_TYPE_TO_HAZARD_TYPE` + `map_data_type_to_hazard_type()` map provider labels (`weather→rainfall`, `seismic→earthquake`); `identify_hazard()` returns `None` for unmapped. Full chain verified: `DataRecord(weather) → classify()` → HIGH/10.0.
+- **Hourly thresholds now IMD spell-rate (uncommitted):** bands 10/20/30/50/100 mm/h; `WMO_DESCRIPTIONS` = full 27-code WMO-No. 306 table; HIGH floor `82/95/96/97/99`. `pytest`: 15 passed.
+- **Branch vs `main`:** `origin/main` merged into `feature/risk-engine` (`11ffb82`, clean). Local `main` = `7362ac7` = `origin/main`.
+- **Next up:** commit pending engine/doc changes + push merge (needs approval); 🔴 Blocker 2 pipeline wiring (`/api/risk-zones`); 🟠 tests; geometry dedup; 🟡 cleanup 6–10; then earthquake engine.
+- **Reminder:** push merge + pending work to GitHub next session; short WhatsApp summary for the team.
 
 ### Cross-team status (as of 2026-10-11)
 
@@ -127,3 +127,56 @@ Full 10-item review of `backend/app/risk/`: 2 blockers, 3 must-fix, 5 cleanup.
 
 - `classifier.py` has an **unexplained local edit** (`"rainfall"` → `"precipitation"`) not made by us; left unstaged. Must be reviewed before merge.
 - Untracked/loose files still present: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+
+---
+
+## 2026-10-11 — EOD: IMD hourly switch + provider type mapping (Blocker 1 closed)
+
+### Session-logging infrastructure (earlier today)
+
+- Added `.opencode/session-logging.md` (consolidated log on every sign-off/milestone), `.opencode/scripts/session_digest.py` (read-only export of today's opencode sessions), `opencode.json` (loads the rule), `.opencode/rules.md` (no git-history changes without permission; ask before anything costing money; checkpoint `session_log.md` before token/compaction limits; when unsure, ask).
+- Used `opencode.json` + `.opencode/` instead of adding `AGENTS.md`, because `AGENTS.md` already exists on `origin/main` (an add/add conflict on merge); `main` has neither `opencode.json` nor `.opencode/`.
+- `session_digest.py --date 2026-10-11` verified: reads 5 sessions today.
+
+### Review received + work completed
+
+- Full 10-item risk-engine review (2 blockers, 3 must-fix, 5 cleanup) analyzed; sequencing proposed (see mid-day entry above for the review detail).
+- 🟢 **#4 closed & pushed:** `docs/RISK_MODEL.md` rainfall thresholds + change log → commit `164280c`, pushed to `origin/feature/risk-engine`.
+- 🟢 **#7 addressed (uncommitted):** import-time `sys.stdout.reconfigure()` moved out of `rain.py` into `main()`; library no longer touches stdout on import.
+- **Local `main` updated:** `git fetch origin main:main` → local `main` = `7362ac7` = `origin/main` (Person 1's `feature/data-ingestion` fully merged into `main`).
+- 🟢 **`session_log.md` tracked & pushed:** committed `b6f0935`, pushed to `origin/feature/risk-engine`. Standing permission granted for this file only.
+- **`"precipitation"` confusion resolved:** that `classifier.py` edit was Person 2's own action. Checked every remote branch — no `data_type`/`hazard_type` equals `"precipitation"` anywhere (only the `precipitation_mm` parameter). **Canonical label decided: `"rainfall"`**; local edit reverted.
+- **Merge with `main`:** Person 2 ran `git merge origin/main` → `11ffb82`, clean, no conflicts. Gained `models/data.py` (`DataRecord`) + `identify_hazard()` placeholder.
+
+### 🔴 Blocker 1 closed (uncommitted): provider type mapping
+
+- Added `RAW_TYPE_TO_HAZARD_TYPE: dict[str, str] = {"weather": "rainfall", "seismic": "earthquake"}` and helper `map_data_type_to_hazard_type(data_type) -> str | None` in `backend/app/risk/classifier.py`.
+- `identify_hazard()` now maps the provider's raw `data_type` to our canonical `hazard_type` and returns `None` for unmapped labels (skip, don't raise).
+- Verified: `weather→rainfall`, `seismic→earthquake`, `foo→None`; end-to-end `DataRecord(weather) → Hazard("rainfall") → classify()` → `HIGH`, severity 10.0, no `NotImplementedError`.
+- Decision recorded: the mapping table is the single anti-corruption layer for provider vocabulary; the `"seismic"→"earthquake"` row is ready for the future earthquake engine.
+
+### IMD attribution + hourly switch to IMD spell-rate
+
+- Verified full form: **IMD = India Meteorological Department** (Ministry of Earth Sciences, Govt. of India).
+- 24h bands already matched IMD's official classification (now explicitly attributed in `docs/RISK_MODEL.md`).
+- Confirmed our hourly bands were UK Met Office/WMO (not IMD); Person 2 approved switching hourly to **IMD spell rate** (1 cm/h = 10 mm/h).
+- `backend/app/risk/rain.py`: hourly bands `<10 / 10–20 / 20–30 / 30–50 / 50–100 / >100` mm/h → 🟢LOW / 🟡MODERATE / 🔴HIGH with severity tiers Light 0–3.9, Moderate 4.0–6.9, Intense 7.0–8.4, Very intense 8.5–9.4, Extremely intense 9.5–9.9, Cloudburst 10.0.
+- `WMO_DESCRIPTIONS` replaced with the accurate full WMO-No. 306 / Open-Meteo table (27 codes, incl. previously-missing `97` Heavy thunderstorm); HIGH floor now `82, 95, 96, 97, 99`. Module docstring rewritten (IMD justification).
+- `docs/RISK_MODEL.md`: hourly section = IMD spell-rate table (6 rows) + severity mapping; change-log row added.
+- Verified boundaries: `9.9→LOW`, `10→MODERATE`, `20→HIGH(7.0)`, `30→HIGH(8.5)`, `50→HIGH(9.5)`, `100+→HIGH(10.0)`; 24h path unchanged; WMO `97` forces HIGH. `pytest`: **15 passed**, no regressions.
+
+### Git state (EOD)
+
+- Committed & pushed: `164280c` (docs RISK_MODEL), `b6f0935` (session_log).
+- Committed, **not pushed**: `11ffb82` merge of `origin/main` into `feature/risk-engine` (branch ahead of `origin/feature/risk-engine` by 25).
+- Uncommitted (pending Person 2 approval before commit): `backend/app/risk/classifier.py` (mapping), `backend/app/risk/rain.py` (#7 + IMD hourly + WMO table), `docs/RISK_MODEL.md` (IMD hourly).
+- Untracked: `.opencode/` (`rules.md`, `session-logging.md`, `scripts/session_digest.py`), `opencode.json`, `test.py`, `test1.py`.
+- `main` = `7362ac7` = `origin/main` (up to date).
+
+### Next up
+
+- Commit/push pending engine + doc changes (confirm message) and the `11ffb82` merge.
+- 🔴 **Blocker 2:** wire the engine in — `app/risk/pipeline.py` seam (`evaluate` / `evaluate_and_store`), `/api/risk-zones` consuming persisted `RiskResult`s, documented in `docs/API.md` + `ARCHITECTURE.md`.
+- 🟠 Tests (`test_classifier.py` / `test_geometry.py` / `test_rain.py`); geometry dedup (`geometry.py` as home, carrying the ±89.9-lat clamp + lon normalization fixes from `rain.py`).
+- 🟡 Cleanup 6–10: affected-area honesty framing; emoji/summary out of engine output; hardcoded source/`hazard_type` defaults; `main()` → `scripts/`.
+- Earthquake engine (the `seismic→earthquake` mapping row is already in place).
