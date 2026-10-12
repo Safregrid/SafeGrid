@@ -11,15 +11,15 @@
 ## Current State (quick reference)
 
 - **Last updated:** 2026-10-12
-- **Branch:** `feature/risk-engine` — 25 ahead of `origin/feature/risk-engine` (merge `11ffb82` is local-only)
+- **Branch:** `feature/risk-engine` — in sync with `origin/feature/risk-engine` (0 ahead); merge `11ffb82` and all EOD pushes are on origin
 - **Subsystem:** `backend/app/risk/` (rainfall engine implemented; earthquake pending)
-- **Working tree:** latest log/docs commits `91a4a3e` + `3c2016b` (both `docs(risk):` session-log updates, landed 2026-10-12 00:0x +0530) sit on the `9586f36` / `874fdd8` / `cfcdcff` engine + doc push (all actually the 2026-10-11 EOD batch, timestamped just after midnight). **Uncommitted:** `backend/app/risk/session_log.md` (today's 2026-10-12 design entry, +36 lines). Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+- **Working tree:** clean — `d5869d9` (this log, 2026-10-12) pushed on top of the 2026-10-11 EOD batch (`9586f36`, `874fdd8`, `cfcdcff`, `91a4a3e`, `3c2016b`) and the `11ffb82` merge. **Uncommitted:** none. Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
   - Standing permission (2026-10-11): Person 2 grants commit/push of `session_log.md` at will — **this file only**.
-- **Blocker 1 closed (uncommitted):** `RAW_TYPE_TO_HAZARD_TYPE` + `map_data_type_to_hazard_type()` map provider labels (`weather→rainfall`, `seismic→earthquake`); `identify_hazard()` returns `None` for unmapped. Full chain verified: `DataRecord(weather) → classify()` → HIGH/10.0.
-- **Hourly thresholds now IMD spell-rate (uncommitted):** bands 10/20/30/50/100 mm/h; `WMO_DESCRIPTIONS` = full 27-code WMO-No. 306 table; HIGH floor `82/95/96/97/99`. `pytest`: 15 passed.
+- **Blocker 1 closed & pushed (`9586f36`):** `RAW_TYPE_TO_HAZARD_TYPE` + `map_data_type_to_hazard_type()` map provider labels (`weather→rainfall`, `seismic→earthquake`); `identify_hazard()` returns `None` for unmapped. Full chain verified: `DataRecord(weather) → classify()` → HIGH/10.0.
+- **Hourly thresholds now IMD spell-rate (pushed `874fdd8`; docs `cfcdcff`):** bands 10/20/30/50/100 mm/h; `WMO_DESCRIPTIONS` = full 27-code WMO-No. 306 table; HIGH floor `82/95/96/97/99`. `pytest`: 15 passed.
 - **Branch vs `main`:** `origin/main` merged into `feature/risk-engine` (`11ffb82`, clean). Local `main` = `7362ac7` = `origin/main`.
-- **Next up:** commit pending engine/doc changes + push merge (needs approval); 🔴 Blocker 2 pipeline wiring (`/api/risk-zones`); 🟠 tests; geometry dedup; 🟡 cleanup 6–10; then earthquake engine.
-- **Reminder:** push merge + pending work to GitHub next session; short WhatsApp summary for the team.
+- **Next up:** 🔴 Blocker 2 pipeline wiring (`/api/risk-zones`); 🟠 tests; geometry dedup; 🟡 cleanup 6–10; then earthquake engine (spec done 2026-10-12 — thresholds must be documented in `RISK_MODEL.md` first).
+- **Reminder:** send the short WhatsApp summary to the team (architecture proposal drafted 2026-10-12, pending their input).
 - **Earthquake engine spec'd (2026-10-12, docs only):** input contract + USGS `properties.mag` no-conversion decision + India-scope bbox; thresholds still need a `RISK_MODEL.md` section before any code. Map-geometry architecture (local grid for rain vs concentric rings for quakes) debated — team confirmation pending. Also: DB contract agreed with Person 4 (one geometry per hazard, no per-cell storage) and a shared **secondary-hazard layer** (`secondary.py`) proposed. No code changed today.
 
 ### Cross-team status (as of 2026-10-11)
