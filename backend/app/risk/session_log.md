@@ -10,16 +10,17 @@
 
 ## Current State (quick reference)
 
-- **Last updated:** 2026-10-11
+- **Last updated:** 2026-10-12
 - **Branch:** `feature/risk-engine` — 25 ahead of `origin/feature/risk-engine` (merge `11ffb82` is local-only)
 - **Subsystem:** `backend/app/risk/` (rainfall engine implemented; earthquake pending)
-- **Working tree:** committed & pushed `164280c` (RISK_MODEL docs), `b6f0935` (session_log), `9586f36` (classifier.py mapping), `874fdd8` (rain.py IMD hourly), `cfcdcff` (RISK_MODEL IMD hourly + change log). **Uncommitted:** none. Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+- **Working tree:** latest log/docs commits `91a4a3e` + `3c2016b` (both `docs(risk):` session-log updates, landed 2026-10-12 00:0x +0530) sit on the `9586f36` / `874fdd8` / `cfcdcff` engine + doc push (all actually the 2026-10-11 EOD batch, timestamped just after midnight). **Uncommitted:** `backend/app/risk/session_log.md` (today's 2026-10-12 design entry, +36 lines). Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
   - Standing permission (2026-10-11): Person 2 grants commit/push of `session_log.md` at will — **this file only**.
 - **Blocker 1 closed (uncommitted):** `RAW_TYPE_TO_HAZARD_TYPE` + `map_data_type_to_hazard_type()` map provider labels (`weather→rainfall`, `seismic→earthquake`); `identify_hazard()` returns `None` for unmapped. Full chain verified: `DataRecord(weather) → classify()` → HIGH/10.0.
 - **Hourly thresholds now IMD spell-rate (uncommitted):** bands 10/20/30/50/100 mm/h; `WMO_DESCRIPTIONS` = full 27-code WMO-No. 306 table; HIGH floor `82/95/96/97/99`. `pytest`: 15 passed.
 - **Branch vs `main`:** `origin/main` merged into `feature/risk-engine` (`11ffb82`, clean). Local `main` = `7362ac7` = `origin/main`.
 - **Next up:** commit pending engine/doc changes + push merge (needs approval); 🔴 Blocker 2 pipeline wiring (`/api/risk-zones`); 🟠 tests; geometry dedup; 🟡 cleanup 6–10; then earthquake engine.
 - **Reminder:** push merge + pending work to GitHub next session; short WhatsApp summary for the team.
+- **Earthquake engine spec'd (2026-10-12, docs only):** input contract + USGS `properties.mag` no-conversion decision + India-scope bbox; thresholds still need a `RISK_MODEL.md` section before any code. Map-geometry architecture (local grid for rain vs concentric rings for quakes) debated — team confirmation pending. Also: DB contract agreed with Person 4 (one geometry per hazard, no per-cell storage) and a shared **secondary-hazard layer** (`secondary.py`) proposed. No code changed today.
 
 ### Cross-team status (as of 2026-10-11)
 
@@ -181,3 +182,59 @@ Full 10-item review of `backend/app/risk/`: 2 blockers, 3 must-fix, 5 cleanup.
 - 🟠 Tests (`test_classifier.py` / `test_geometry.py` / `test_rain.py`); geometry dedup (`geometry.py` as home, carrying the ±89.9-lat clamp + lon normalization fixes from `rain.py`).
 - 🟡 Cleanup 6–10: affected-area honesty framing; emoji/summary out of engine output; hardcoded source/`hazard_type` defaults; `main()` → `scripts/`.
 - Earthquake engine (the `seismic→earthquake` mapping row is already in place).
+
+---
+
+## 2026-10-12 — Earthquake engine requirements + local-grid vs concentric architecture
+
+### Earthquake engine (`earthquake.py`) — requirements agreed (no code yet)
+
+- **Input contract** (`EarthquakeInput`, mirroring `PrecipitationInput`): `latitude`, `longitude`, `time`, `magnitude`, `mag_type`, `depth_km` *(required)*; `mmi`, `cdi`, `alert`, `tsunami`, `felt`, `sig`, `place` *(optional compounding factors)*.
+- **Magnitude decision (confirmed with Person 1):** standardize on the USGS *preferred* magnitude `properties.mag`, **no scale conversion** anywhere. Magnitude scales (`ml`/`mb`/`ms`/`mww`/…) are not mutually convertible, so conversion would fabricate precision. `magType` passes through as metadata; `RISK_MODEL.md` will note we do **not** cross-convert to IMD's local magnitude (`ML`).
+- **India scope:** USGS is global → filter to an India bounding box (lat 6–38, lon 68–98, incl. Andaman & Nicobar). Candidate threshold sources to cite: BIS IS 1893 (Part 1) seismic zones II–V, IMD/NDMA, USGS PAGER/MMI.
+- **Thresholds NOT yet fixed** — must be written into `docs/RISK_MODEL.md` (value/justification/source/limitations) *before* implementing classification logic (project rule).
+- **Integration:** add `_classify_earthquake` + branch in `classifier.py`; `RAW_TYPE_TO_HAZARD_TYPE` already maps `seismic→earthquake`; USGS ingestion (`backend/app/ingestion/usgs.py`) is Person 1's stub.
+
+### Map-geometry architecture — debated, proposals pending team confirmation
+
+- **Two data models, not one:** rain (Open-Meteo) can be sampled at any coordinate → grid is genuinely data-driven; earthquakes (USGS) are *events* at epicenters → event-based, not grid-sampleable. Proposal: **rain = sampled grid, earthquake = concentric attenuation rings**, drawn on the same display grid for visual consistency.
+- **Verified Open-Meteo constraints:** max **1000 locations/request** (`LOCATIONS_LIMIT`); **each coordinate counts as an API call** (free tier 10,000/day); POST needed for large batches.
+- **New product constraint:** only risky areas *around the user* are shown → the grid is **local**, not national.
+- **`n` reasoning:** two knobs — coverage radius `R` and sampling spacing `s` (`n = 2R/s`). Town scale `R≈25 km, s≈2 km → n≈25` (625 cells, fits one request). Spacing must not be finer than the source model (~11 km global). Recommended pilot: town scale.
+- **Scale trap:** per-user dynamic grids multiply quota by user count → prefer a **fixed shared grid, computed on a schedule, cached, sliced by radius per user** (aligns with Person 4's service worker).
+- **Color representation:** **dissolve/union of qualifying cells by class** (honest; holes preserved) as default; convex hull only per connected component and must be labelled an envelope (spans non-risk gaps otherwise).
+- **Open question:** for a purely local view, rain may not need a grid at all — one point request + affected-area ring may suffice.
+
+### Geometry ownership (hybrid — matches earlier plan)
+
+- `geometry.py` = **shared toolkit of primitives** (point→circle/ring, concentric rings, grid builder, cell polygon, dissolve/union, convex hull, simplify) — no hazard knowledge.
+- `rain.py` / `earthquake.py` = **thin recipes** composing primitives + hazard-specific decisions (radius scaling; attenuation radii).
+- **Dedup:** remove the duplicated `compute_rainfall_polygon` from `rain.py`; keep one copy in `geometry.py`, carrying the ±89.9-lat clamp + lon-normalization fixes from `rain.py`. Closes the drift item from the 2026-10-11 review.
+
+### DB / offline contract (with Person 4) — Q&A
+
+- **`affected_area` stays one GeoJSON geometry per `RiskResult`; `MultiPolygon` is acceptable. No per-cell storage** on the hazard / risk-result tables. The grid is an internal computation detail; what is persisted/rendered is the *dissolved* polygon.
+- **Event hazards vs grid layer are different objects:** event hazards (earthquake epicenter, point-rain) stay keyed by `hazard_id` with one geometry each; the shared rain grid is **not** a hazard. If persisted it needs a separate cache table (e.g. `grid_cells(cell_id, lat, lon, score, risk_level, computed_at)`), else it is left to the service-worker cache. **Optional — flagged to Person 4.**
+- **Refresh cadence / TTL is Person 4's to set but is source-dependent (pending Person 1):** rain grid is quota-bound (n=25 → 625 calls/refresh; ~3-hourly ≈ 5,000 calls/day fits the 10k free tier); the USGS quake feed is ~real-time with no key/quota → 1–5 min. Suggested `is_live = (now − generated_at) <= interval`; expose `is_live` **and** `generated_at`; offline → `is_live = False`.
+- Replied to Person 4 on (1); (2) declared dependent on Person 1. Future suggestion: drop `n` to 15 for fresher refreshes within quota (no schema impact).
+
+### Secondary / cascading hazard layer (proposal, no code)
+
+- Idea (Person 2): after classifying a primary hazard, use geography to flag *secondary* hazards — heavy rain in hilly terrain → landslide; in low-lying areas → flooding; extend later to earthquake → tsunami.
+- **Recommendation:** do **not** embed in `rain.py`. Create a shared, hazard-agnostic `app/risk/secondary.py` (`(primary_hazard, geography) → list[SecondaryRisk]`), invoked by the pipeline *after* primary classification, keeping primary engines thin/pure.
+- **Vocabulary:** keep "compounding factor" (raises primary severity — e.g. wind/WMO in `rain.py`) distinct from "secondary hazard" (a different hazard type *triggered* by the primary).
+- **Blocker is geography data, not logic:** cheapest = Open-Meteo **Elevation API** (`/v1/elevation`, Copernicus DEM 90 m, no key, ≤100 coords) → derive slope; heavier = static India layers (GSI landslide susceptibility, Bhuvan/ISRO, IMD/NDMA flood zones). Document whichever is used as a known limitation.
+- **Two decisions before code (need P3/P4):** (a) output shape — secondary risk attached to the primary `RiskResult` vs its own `RiskResult` / zone with geometry; (b) new thresholds must be documented in `RISK_MODEL.md` *first*.
+- **Tsunami extension:** simplest version uses the existing USGS `tsunami` flag + offshore/shallow + coastal proximity → "conditions consistent with increased risk," never prediction.
+- Suggested pilot: rainfall → urban-flood vs landslide only, one geography source, fully documented; then extend.
+
+### Decisions status
+
+- ✅ Confirmed: earthquake input contract; USGS preferred-magnitude / no-conversion rule (Person 1 notified); geometry hybrid direction; `affected_area` = one geometry per hazard, no per-cell storage (Person 4).
+- ⏳ Pending team: coverage radius `R`; grid `n`/spacing; shared-vs-per-user grid; union-vs-hull; whether rain needs a grid for a local-only view; secondary-hazard layer (`secondary.py`) + its output schema/geography source.
+- **Nothing implemented yet** — requirements / architecture / docs only; no code changed today.
+
+### Git state (EOD)
+
+- No code commits today. Commits timestamped 2026-10-12 00:0x (`9586f36`, `874fdd8`, `cfcdcff`, `91a4a3e`, `3c2016b`) are the tail of the 2026-10-11 EOD batch.
+- Working tree: `backend/app/risk/session_log.md` modified (uncommitted) — today's entry. Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
