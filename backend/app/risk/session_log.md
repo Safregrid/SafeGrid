@@ -11,9 +11,9 @@
 ## Current State (quick reference)
 
 - **Last updated:** 2026-10-13
-- **Branch:** `feature/risk-engine` — in sync with `origin/feature/risk-engine`; top commit `dff1a0e` (pipeline seam, pushed)
+- **Branch:** `feature/risk-engine` — in sync with `origin/feature/risk-engine`; top commit `8dcca71` (geometry dedup + rain cleanup + earthquake spec, pushed)
 - **Subsystem:** `backend/app/risk/` (rainfall engine implemented; geometry toolkit; earthquake spec'd, not coded)
-- **Working tree:** **uncommitted** — `geometry.py` (dedup + concentric rings), `rain.py` (cleanup), `docs/RISK_MODEL.md` (earthquake spec + `specific_data` mapping note), `session_log.md`. Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+- **Working tree:** clean (EOD 2026-10-13). Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
   - Standing permission (2026-10-11): Person 2 grants commit/push of `session_log.md` at will — **this file only**.
 - **Blocker 1 closed & pushed (`9586f36`):** `RAW_TYPE_TO_HAZARD_TYPE` + `map_data_type_to_hazard_type()` map provider labels (`weather→rainfall`, `seismic→earthquake`); `identify_hazard()` returns `None` for unmapped. Full chain verified: `DataRecord(weather) → classify()` → HIGH/10.0.
 - **Hourly thresholds now IMD spell-rate (pushed `874fdd8`; docs `cfcdcff`):** bands 10/20/30/50/100 mm/h; `WMO_DESCRIPTIONS` = full 27-code WMO-No. 306 table; HIGH floor `82/95/96/97/99`. `pytest`: 15 passed.
