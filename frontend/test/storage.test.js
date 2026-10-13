@@ -8,6 +8,11 @@ import {
   getDataAge,
   clearRiskZones,
   RISK_ZONES_STORE_KEY,
+  saveHazards,
+  getLastKnownHazards,
+  getHazardsAge,
+  clearHazards,
+  HAZARDS_STORE_KEY,
 } from "../src/offline/storage.js";
 
 const originalIndexedDB = globalThis.indexedDB;
@@ -23,14 +28,29 @@ function sampleZones(level = "HIGH") {
           type: "Polygon",
           coordinates: [
             [
-              [77.5, 12.9],
-              [77.6, 12.9],
-              [77.6, 13.0],
-              [77.5, 13.0],
-              [77.5, 12.9],
+              [7.2, 44.4],
+              [7.3, 44.4],
+              [7.3, 44.5],
+              [7.2, 44.5],
+              [7.2, 44.4],
             ],
           ],
         },
+      },
+    ],
+  };
+}
+
+function sampleHazards() {
+  return {
+    is_live: true,
+    hazards: [
+      {
+        id: "rain-001",
+        hazard_type: "rainfall",
+        latitude: 44.4,
+        longitude: 7.2,
+        probability: 60,
       },
     ],
   };
@@ -47,6 +67,7 @@ function restoreIndexedDB() {
 beforeEach(async () => {
   restoreIndexedDB();
   await clearRiskZones();
+  await clearHazards();
 });
 
 test("exports a stable store key", () => {
@@ -170,4 +191,66 @@ test("saveRiskZones rejects without IndexedDB", async () => {
 test("clearRiskZones is a no-op without IndexedDB", async () => {
   withoutIndexedDB();
   await assert.doesNotReject(() => clearRiskZones());
+});
+
+test("targets the hazards store key", () => {
+  assert.equal(HAZARDS_STORE_KEY, "hazards");
+});
+
+test("getLastKnownHazards returns null before any data is saved", async () => {
+  assert.equal(await getLastKnownHazards(), null);
+});
+
+test("getHazardsAge is empty before any data is saved", async () => {
+  assert.deepEqual(await getHazardsAge(), { timestamp: null, isLive: false });
+});
+
+test("hazards round-trip and preserve payload shape", async () => {
+  const payload = sampleHazards();
+  await saveHazards(payload);
+  assert.deepEqual(await getLastKnownHazards(), payload);
+});
+
+test("hazards are stored independently from risk zones", async () => {
+  await saveHazards(sampleHazards());
+  assert.equal(await getLastKnownRiskZones(), null);
+  await saveRiskZones(sampleZones());
+  assert.deepEqual(await getLastKnownHazards(), sampleHazards());
+});
+
+test("saveHazards does not mutate the object it is given", async () => {
+  const payload = sampleHazards();
+  const before = JSON.stringify(payload);
+  await saveHazards(payload, new Date(), true);
+  assert.equal(JSON.stringify(payload), before);
+  assert.equal("cached_at" in payload, false);
+});
+
+test("saveHazards preserves the saved timestamp and live flag", async () => {
+  const savedAt = new Date("2026-04-04T04:04:04.000Z");
+  await saveHazards(sampleHazards(), savedAt, true);
+  const age = await getHazardsAge();
+  assert.equal(age.timestamp.toISOString(), savedAt.toISOString());
+  assert.equal(age.isLive, true);
+});
+
+test("saveHazards rejects a payload without a hazards array", async () => {
+  await assert.rejects(() => saveHazards(null), TypeError);
+  await assert.rejects(() => saveHazards({ is_live: true }), TypeError);
+  await assert.rejects(() => saveHazards([]), TypeError);
+});
+
+test("clearHazards removes the snapshot", async () => {
+  await saveHazards(sampleHazards());
+  await clearHazards();
+  assert.equal(await getLastKnownHazards(), null);
+  assert.deepEqual(await getHazardsAge(), { timestamp: null, isLive: false });
+});
+
+test("hazards helpers degrade without IndexedDB", async () => {
+  withoutIndexedDB();
+  assert.equal(await getLastKnownHazards(), null);
+  assert.deepEqual(await getHazardsAge(), { timestamp: null, isLive: false });
+  await assert.doesNotReject(() => clearHazards());
+  await assert.rejects(() => saveHazards(sampleHazards()), Error);
 });

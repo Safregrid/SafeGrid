@@ -6,6 +6,12 @@
  */
 
 export const RISK_ZONES_PATH = "/api/risk-zones";
+export const HAZARDS_PATH = "/api/hazards";
+
+// Default age after which cached data is considered stale (see docs/OFFLINE.md).
+// 3 hours matches the normal ingestion cadence; tighten it when an active
+// hazard exists (adaptive cadence) so the UI flags older data sooner.
+export const STALE_AFTER_MS = 3 * 60 * 60 * 1000;
 
 export function isRiskZonesRequest(url, method = "GET") {
   if (String(method).toUpperCase() !== "GET") {
@@ -24,6 +30,32 @@ export function markAsCached(geojson, cachedAt) {
     return geojson;
   }
   return { ...geojson, is_live: false, cached_at: cachedAt ?? null };
+}
+
+export function isHazardsRequest(url, method = "GET") {
+  if (String(method).toUpperCase() !== "GET") {
+    return false;
+  }
+  try {
+    const parsed = new URL(url, "http://localhost");
+    return parsed.pathname === HAZARDS_PATH;
+  } catch {
+    return false;
+  }
+}
+
+export function markHazardsCached(payload, cachedAt) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+  const hazards = Array.isArray(payload.hazards)
+    ? payload.hazards.map((hazard) =>
+        hazard !== null && typeof hazard === "object" && !Array.isArray(hazard)
+          ? { ...hazard, is_live: false, cached_at: cachedAt ?? null }
+          : hazard
+      )
+    : [];
+  return { ...payload, is_live: false, cached_at: cachedAt ?? null, hazards };
 }
 
 export function isStale(cachedAt, now, maxAgeMs) {

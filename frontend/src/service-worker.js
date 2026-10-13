@@ -8,14 +8,24 @@
  * - /api/risk-zones: network-first. On a successful live response the body is
  *   stored in IndexedDB. When the network fails, the last known body is served
  *   with is_live: false so the UI can label it as cached data.
+ * - /api/hazards: network-first, same as risk-zones. Cached payloads are served
+ *   with is_live: false and every hazard stamped is_live: false + cached_at.
  */
 
 import {
   saveRiskZones,
   getLastKnownRiskZones,
   getDataAge,
+  saveHazards,
+  getLastKnownHazards,
+  getHazardsAge,
 } from "./offline/storage.js";
-import { isRiskZonesRequest, markAsCached } from "./offline/policy.js";
+import {
+  isRiskZonesRequest,
+  markAsCached,
+  isHazardsRequest,
+  markHazardsCached,
+} from "./offline/policy.js";
 
 const SW_VERSION = "offline-v4";
 const SHELL_CACHE = "safegrid-shell-v4";
@@ -82,6 +92,40 @@ async function handleRiskZones(request) {
   }
 }
 
+async function handleHazards(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      try {
+        const payload = await response.clone().json();
+        await saveHazards(payload, new Date(), true);
+      } catch {
+        // Non-JSON or unreadable body: keep the live response, cache nothing.
+      }
+    }
+    return response;
+  } catch {
+    const [payload, age] = await Promise.all([
+      getLastKnownHazards(),
+      getHazardsAge(),
+    ]);
+    if (payload) {
+      const cachedAt = age.timestamp ? age.timestamp.toISOString() : null;
+      return new Response(JSON.stringify(markHazardsCached(payload, cachedAt)), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "X-SafeGrid-Cache": "hazards",
+        },
+      });
+    }
+    return new Response(JSON.stringify({ is_live: false, hazards: [] }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
 async function handleShell(request) {
   const cached =
     (await caches.match(request, { ignoreVary: true })) ||
@@ -123,6 +167,11 @@ self.addEventListener("fetch", (event) => {
 
   if (isRiskZonesRequest(request.url, request.method)) {
     event.respondWith(handleRiskZones(request));
+    return;
+  }
+
+  if (isHazardsRequest(request.url, request.method)) {
+    event.respondWith(handleHazards(request));
     return;
   }
 

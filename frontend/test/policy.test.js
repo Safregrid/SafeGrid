@@ -6,6 +6,10 @@ import {
   markAsCached,
   isStale,
   RISK_ZONES_PATH,
+  isHazardsRequest,
+  markHazardsCached,
+  HAZARDS_PATH,
+  STALE_AFTER_MS,
 } from "../src/offline/policy.js";
 
 test("targets the risk-zones endpoint", () => {
@@ -76,4 +80,72 @@ test("isStale treats an unknown timestamp as stale", () => {
   const now = new Date("2026-01-01T12:00:00.000Z");
   assert.equal(isStale("garbage", now, 1000), true);
   assert.equal(isStale(null, now, 1000), true);
+});
+
+test("documents a 3 hour staleness default", () => {
+  assert.equal(STALE_AFTER_MS, 3 * 60 * 60 * 1000);
+  const now = new Date("2026-01-01T12:00:00.000Z");
+  assert.equal(isStale("2026-01-01T10:00:00.000Z", now, STALE_AFTER_MS), false);
+  assert.equal(isStale("2026-01-01T08:00:00.000Z", now, STALE_AFTER_MS), true);
+});
+
+test("targets the hazards endpoint", () => {
+  assert.equal(HAZARDS_PATH, "/api/hazards");
+});
+
+test("recognises a plain GET to /api/hazards", () => {
+  assert.equal(isHazardsRequest("/api/hazards"), true);
+});
+
+test("recognises an absolute URL to /api/hazards", () => {
+  assert.equal(isHazardsRequest("https://safegrid.example/api/hazards?limit=5"), true);
+});
+
+test("isHazardsRequest rejects non-GET methods and other endpoints", () => {
+  assert.equal(isHazardsRequest("/api/hazards", "POST"), false);
+  assert.equal(isHazardsRequest("/api/risk-zones"), false);
+  assert.equal(isHazardsRequest("/health"), false);
+});
+
+test("isHazardsRequest rejects malformed input without throwing", () => {
+  assert.equal(isHazardsRequest("http://[::bad"), false);
+});
+
+test("markHazardsCached flips payload and every hazard to cached", () => {
+  const marked = markHazardsCached(
+    {
+      is_live: true,
+      hazards: [
+        { id: "eq-1", is_live: true },
+        { id: "eq-2", is_live: true },
+      ],
+    },
+    "2026-01-01T00:00:00.000Z"
+  );
+  assert.equal(marked.is_live, false);
+  assert.equal(marked.cached_at, "2026-01-01T00:00:00.000Z");
+  assert.equal(marked.hazards.length, 2);
+  marked.hazards.forEach((hazard) => {
+    assert.equal(hazard.is_live, false);
+    assert.equal(hazard.cached_at, "2026-01-01T00:00:00.000Z");
+  });
+});
+
+test("markHazardsCached does not mutate its input", () => {
+  const input = { is_live: true, hazards: [{ id: "h1", is_live: true }] };
+  markHazardsCached(input, "2026-01-01T00:00:00.000Z");
+  assert.equal(input.is_live, true);
+  assert.equal(input.hazards[0].is_live, true);
+  assert.equal("cached_at" in input.hazards[0], false);
+});
+
+test("markHazardsCached defaults an absent hazards array to empty", () => {
+  const marked = markHazardsCached({ is_live: true }, "2026-01-01T00:00:00.000Z");
+  assert.deepEqual(marked.hazards, []);
+  assert.equal(marked.is_live, false);
+});
+
+test("markHazardsCached passes through non-object values untouched", () => {
+  assert.equal(markHazardsCached(null), null);
+  assert.deepEqual(markHazardsCached([1, 2]), [1, 2]);
 });

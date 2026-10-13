@@ -12,8 +12,10 @@ const DB_NAME = "safegrid-offline";
 const DB_VERSION = 1;
 const STORE_NAME = "snapshots";
 const RISK_ZONES_KEY = "risk-zones";
+const HAZARDS_KEY = "hazards";
 
 export const RISK_ZONES_STORE_KEY = RISK_ZONES_KEY;
+export const HAZARDS_STORE_KEY = HAZARDS_KEY;
 
 function hasIndexedDB() {
   return typeof indexedDB !== "undefined" && indexedDB !== null;
@@ -41,16 +43,26 @@ function openDatabase() {
   });
 }
 
-function readRecord(database) {
+function readRecord(database, key) {
   return new Promise((resolve, reject) => {
     const request = database
       .transaction(STORE_NAME, "readonly")
       .objectStore(STORE_NAME)
-      .get(RISK_ZONES_KEY);
+      .get(key);
 
     request.onsuccess = () => resolve(request.result ?? null);
     request.onerror = () =>
       reject(request.error ?? new Error("Failed to read offline data"));
+  });
+}
+
+function deleteRecord(database, key) {
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readwrite");
+    transaction.objectStore(STORE_NAME).delete(key);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () =>
+      reject(transaction.error ?? new Error("Failed to clear offline data"));
   });
 }
 
@@ -116,7 +128,7 @@ export async function getLastKnownRiskZones() {
     return null;
   }
   try {
-    const record = await withDatabase((database) => readRecord(database));
+    const record = await withDatabase((database) => readRecord(database, RISK_ZONES_KEY));
     if (!record || !isPlainObject(record.geojson)) {
       return null;
     }
@@ -132,7 +144,7 @@ export async function getDataAge() {
     return empty;
   }
   try {
-    const record = await withDatabase((database) => readRecord(database));
+    const record = await withDatabase((database) => readRecord(database, RISK_ZONES_KEY));
     if (!record || typeof record.savedAt !== "string") {
       return empty;
     }
@@ -146,18 +158,66 @@ export async function getDataAge() {
   }
 }
 
+export async function saveHazards(payload, savedAt = new Date(), isLive = false) {
+  if (!isPlainObject(payload) || !Array.isArray(payload.hazards)) {
+    throw new TypeError("saveHazards expects a payload with a hazards array");
+  }
+
+  const record = {
+    key: HAZARDS_KEY,
+    payload,
+    savedAt: normalizeTimestamp(savedAt),
+    isLive: Boolean(isLive),
+  };
+
+  await withDatabase((database) => writeRecord(database, record));
+}
+
+export async function getLastKnownHazards() {
+  if (!hasIndexedDB()) {
+    return null;
+  }
+  try {
+    const record = await withDatabase((database) => readRecord(database, HAZARDS_KEY));
+    if (!record || !isPlainObject(record.payload)) {
+      return null;
+    }
+    return record.payload;
+  } catch {
+    return null;
+  }
+}
+
+export async function getHazardsAge() {
+  const empty = { timestamp: null, isLive: false };
+  if (!hasIndexedDB()) {
+    return empty;
+  }
+  try {
+    const record = await withDatabase((database) => readRecord(database, HAZARDS_KEY));
+    if (!record || typeof record.savedAt !== "string") {
+      return empty;
+    }
+    const timestamp = new Date(record.savedAt);
+    if (Number.isNaN(timestamp.getTime())) {
+      return empty;
+    }
+    return { timestamp, isLive: Boolean(record.isLive) };
+  } catch {
+    return empty;
+  }
+}
+
+export async function clearHazards() {
+  if (!hasIndexedDB()) {
+    return;
+  }
+  await withDatabase((database) => deleteRecord(database, HAZARDS_KEY));
+}
+
 export async function clearRiskZones() {
   if (!hasIndexedDB()) {
     return;
   }
-  await withDatabase(
-    (database) =>
-      new Promise((resolve, reject) => {
-        const transaction = database.transaction(STORE_NAME, "readwrite");
-        transaction.objectStore(STORE_NAME).delete(RISK_ZONES_KEY);
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () =>
-          reject(transaction.error ?? new Error("Failed to clear offline data"));
-      })
-  );
+  await withDatabase((database) => deleteRecord(database, RISK_ZONES_KEY));
 }
