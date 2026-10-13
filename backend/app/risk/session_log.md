@@ -10,15 +10,15 @@
 
 ## Current State (quick reference)
 
-- **Last updated:** 2026-10-12
-- **Branch:** `feature/risk-engine` — in sync with `origin/feature/risk-engine` (0 ahead); merge `11ffb82` and all EOD pushes are on origin
-- **Subsystem:** `backend/app/risk/` (rainfall engine implemented; earthquake pending)
-- **Working tree:** clean — `d5869d9` (this log, 2026-10-12) pushed on top of the 2026-10-11 EOD batch (`9586f36`, `874fdd8`, `cfcdcff`, `91a4a3e`, `3c2016b`) and the `11ffb82` merge. **Uncommitted:** none. Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+- **Last updated:** 2026-10-13
+- **Branch:** `feature/risk-engine` — in sync with `origin/feature/risk-engine`; top commit `dff1a0e` (pipeline seam, pushed)
+- **Subsystem:** `backend/app/risk/` (rainfall engine implemented; geometry toolkit; earthquake spec'd, not coded)
+- **Working tree:** **uncommitted** — `geometry.py` (dedup + concentric rings), `rain.py` (cleanup), `docs/RISK_MODEL.md` (earthquake spec + `specific_data` mapping note), `session_log.md`. Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
   - Standing permission (2026-10-11): Person 2 grants commit/push of `session_log.md` at will — **this file only**.
 - **Blocker 1 closed & pushed (`9586f36`):** `RAW_TYPE_TO_HAZARD_TYPE` + `map_data_type_to_hazard_type()` map provider labels (`weather→rainfall`, `seismic→earthquake`); `identify_hazard()` returns `None` for unmapped. Full chain verified: `DataRecord(weather) → classify()` → HIGH/10.0.
 - **Hourly thresholds now IMD spell-rate (pushed `874fdd8`; docs `cfcdcff`):** bands 10/20/30/50/100 mm/h; `WMO_DESCRIPTIONS` = full 27-code WMO-No. 306 table; HIGH floor `82/95/96/97/99`. `pytest`: 15 passed.
 - **Branch vs `main`:** `origin/main` merged into `feature/risk-engine` (`11ffb82`, clean). Local `main` = `7362ac7` = `origin/main`.
-- **Next up:** 🔴 Blocker 2 pipeline wiring (`/api/risk-zones`); 🟠 tests; geometry dedup; 🟡 cleanup 6–10; then earthquake engine (spec done 2026-10-12 — thresholds must be documented in `RISK_MODEL.md` first).
+- **Next up:** 🟠 **rain.py cleanup — see the 11-task list in the 2026-10-13 EOD entry** (tests first). Earthquake: **spec drafted** in `docs/RISK_MODEL.md`; pick the **GMPE** then build `earthquake.py`. Also: `/api/risk-zones` wiring (Person 1's files — cross-subsystem handoff), and the ⚠️ **rain grid**: per-user-vs-shared decision first, then builder+scoring (P2) with scheduling/cache/serving (P4). Geometry dedup ✅ done (2026-10-13).
 - **Reminder:** send the short WhatsApp summary to the team (architecture proposal drafted 2026-10-12, pending their input).
 - **Earthquake engine spec'd (2026-10-12, docs only):** input contract + USGS `properties.mag` no-conversion decision + India-scope bbox; thresholds still need a `RISK_MODEL.md` section before any code. Map-geometry architecture (local grid for rain vs concentric rings for quakes) debated — team confirmation pending. Also: DB contract agreed with Person 4 (one geometry per hazard, no per-cell storage) and a shared **secondary-hazard layer** (`secondary.py`) proposed. No code changed today.
 
@@ -238,3 +238,73 @@ Full 10-item review of `backend/app/risk/`: 2 blockers, 3 must-fix, 5 cleanup.
 
 - No code commits today. Commits timestamped 2026-10-12 00:0x (`9586f36`, `874fdd8`, `cfcdcff`, `91a4a3e`, `3c2016b`) are the tail of the 2026-10-11 EOD batch.
 - Working tree: `backend/app/risk/session_log.md` modified (uncommitted) — today's entry. Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+
+---
+
+## 2026-10-13 — Blocker 2 pipeline seam (`pipeline.py`)
+
+### What Blocker 2 actually was
+
+- Three layers worked in isolation but were never connected: ingestion writes `data_records`; the risk engine classifies a `Hazard`→`RiskResult`; the DB has `hazards`+`risk_results` and `/api/hazards`. **Nothing turned `data_records` into hazards, ran the engine, or wrote results** → the engine never ran and `/api/risk-zones` was always empty. The missing piece is a connective segment (the "middle pipe"), not broken logic.
+
+### Built: `backend/app/risk/pipeline.py` (uncommitted)
+
+- Person 2's seam composing the classifier + Person 4 repository, no hazard logic of its own.
+- `evaluate(record) -> RiskResult | None`: `identify_hazard()` → (skip if `None`) → `classify()`; no persistence.
+- `evaluate_and_store(record, database=db) -> RiskResult | None`: same, then `save_hazard()` + `save_risk_result()`. **Classify runs before any writes**, so a classification failure leaves the DB untouched.
+- Batch helpers `evaluate_all()` / `evaluate_and_store_all()` skipping unmapped records.
+- **Decision:** a record whose `data_type` is mapped in `RAW_TYPE_TO_HAZARD_TYPE` but has no classifier yet (e.g. `seismic→earthquake` before `earthquake.py`) **raises `NotImplementedError` (fail loud)** rather than silently skipping — consistent with deciding not to hide a declared-but-unimplemented hazard type. Unmapped labels still return `None`. Revisit when `earthquake.py` lands.
+- Verified end-to-end on an in-memory DB: `DataRecord(weather, 18 mm/h, gusts 50)` → `evaluate` HIGH/7.12 with a `Polygon`; `evaluate_and_store` persisted and `list_hazards_with_risk()` returned the joined row; unmapped `data_type` → `None`. `pytest`: **15 passed**, no regressions.
+
+### Scope decision (was asked + answered)
+
+- Person 2 chose **pipeline seam only**. The `/api/risk-zones` endpoint (Person 1's `backend/app/api/risk_zones.py` + registration in `main.py`) is deliberately **left as a cross-subsystem handoff** — not edited today.
+
+### Person 1 decisions received (evening) — all three locked in
+
+- 🟢 **Grid approved (rain, one shared pilot region).** ONE shared grid over ONE pilot region (town scale, `n≈25` → 625 cells), **pre-computed on a schedule and cached**, API **slices per user at request time** (zero runtime provider calls). 3–6h refresh ≈ 2,500–5,000 calls/day, under the 10k free tier. TTL + `is_live` to be set with Person 4. Hard rules: **never per-user dynamic, never national.**
+- 🟢 **Rings kept (earthquake).** Rings were always acceptable; they're wrong for rain (circle invented from a score) but right for earthquakes (radial decay is real physics; a quake is an *event*, not a field). Requirement: **ground rings in a published attenuation relation** — radius from `mag + depth + distance → intensity` — and **draw at MMI thresholds, not invented steps**. "Depth does the work." **Non-Mw `magType` → note it, do not convert.**
+- 🟢 **Tsunami secondary hazard, strict trigger.** Require **all four**: USGS `tsunami` flag = 1 **and** shallow (`< 70 km`) **and** offshore **and** `M ≥ 6.5` (documented as a working assumption). Coastal band becomes a **separate secondary `RiskResult`** (own geometry, own score) via `secondary.py` — **never folded into the shaking score**. Needs a coastline dataset (**Natural Earth**). Label: *"conditions consistent with increased risk — not a prediction."*
+- **Gating rule re-stated by Person 1:** both new threshold sets go into **`docs/RISK_MODEL.md` before code**. Earthquake engine declared **unblocked**.
+
+### Earthquake spec written to `docs/RISK_MODEL.md` (docs only)
+
+- Replaced the `Earthquake (USGS) — PLACEHOLDER` section with a full **specification draft** (change-log row added). Canonical detail lives in RISK_MODEL.md — this log only points to it.
+- Contents: USGS input contract (`properties.mag`/`magType`, `depth_km`, coords, `time`; optional `mmi`/`cdi`/`alert`/`tsunami`/`felt`/`sig`); India bbox scope (lat 6–38, lon 68–98); **locked no-conversion magnitude decision — "Richter"/ML explicitly rejected** (ML saturates ~M6.5–7, not the GMPE input, not reliably provided by USGS for significant events); MMI-based threshold framework (proposed bands LOW <IV, MODERATE IV–V, HIGH ≥VI); concentric intensity rings via hypocentral distance `sqrt(d_epi²+depth²)`; non-mw `magType` → classify + low-confidence note.
+- 🔴 **Open input: which GMPE** (candidate USGS ShakeMap Worden et al. 2012 MMI, or an India-region relation) — coefficients/source/limitations must be cited before any code. Fixed the stale "Richter magnitude" placeholder text.
+- Also captured (not yet in RISK_MODEL): the **adaptive-refresh** discussion for the rain grid — rolling 24h window + UTC-hour-aligned polling are good; tightening the **whole** 625-cell grid during HIGH is a quota trap (7.5k/day already at a 2h cadence) → refresh a **small affected subset** fast, keep the full grid slow, add hysteresis + a daily budget guard; the 15-min full-grid cadence is dropped. P4 must store `generated_at` per zone for a dynamic `is_live`.
+
+### rain.py / geometry.py cleanup (afternoon, uncommitted)
+
+- 🟢 **Geometry dedup (review must-fix closed):** `point_circle()` primitive + `compute_rainfall_polygon()` (score→radius) + `concentric_rings()` now live **only** in `geometry.py`. `rain.py` imports `compute_rainfall_polygon` from there (verified same function object). Carried the ±89.9-lat clamp + lon-normalization into the single copy. Deleted the **dead** `compute_affected_area()` (zero callers) from `geometry.py`.
+- 🟢 **Concentric rings prepared for `earthquake.py`:** `concentric_rings(lat, lon, radii_km, num_points=24) -> list[Polygon]` (nested circles; annulus bands = difference of consecutive rings, documented). Not wired to anything yet.
+- 🟢 **Probability edge fixed** (`rain.py`): removed the `0.0 < p <= 1.0 → ×100` guess; all values are treated as **percent** and clamped to `[0,100]`. A genuine `1.0` now reads as 1%, not 100%.
+- 🟢 **String parsing removed from the engine** (`rain.py`): `process_precipitation_hazard()` now accepts only a dict / Pydantic model; the JSON parse moved into `main()` (CLI concern). Dropped unused `import ast` / `import math`.
+- ⚠️ **New: CLI must run as a module.** `rain.py` now imports `app.risk.geometry`, so `python app/risk/rain.py` fails (`No module named 'app'`). Use `python -m app.risk.rain` from `backend/`. Revisit when `main()` moves to `scripts/`.
+- Verified: circle closes + clamps; 3 concentric rings; prob `1.0`→"1%"; Hazard-model input still classifies; CLI via `-m` prints. `pytest`: **15 passed**.
+- **Design agreed this afternoon (not built):** rain moves fully to a **grid** — grid drawn around the user's location, town-sized; cells store only HIGH/MODERATE (no green); per-class remark = *"up to X mm/hr in red areas"* (X = grid max) and similar for moderate; render one **MultiPolygon per class** (disjoint components = honest). ⚠️ **Conflict to resolve:** "grid around the user's location" implies a **per-user dynamic grid**, which Person 1 explicitly forbade (quota) in favour of ONE shared pilot grid. Flag before building.
+
+### Remaining tasks w.r.t `rain.py` (11 — carry forward)
+
+1. **Unit tests** — `tests/test_risk/` is still a stub. Highest value; fully unblocked (engine needs no network/DB/pipeline).
+2. **`window > 1` treated as 24h** — `calculate_precipitation_risk` maps any window `> 1 h` onto the 24h bands. Needs a decision (round, reject, or per-window tables).
+3. **Stale `duration` fallback** — `process_precipitation_hazard` still reads `data.get("duration")`, contradicting the "duration dropped" decision. Remove or justify.
+4. **`main()` CLI embedded in the package** — move to `scripts/` (also removes the `python -m app.risk.rain` requirement introduced today).
+5. **Presentation baked into the engine** — `badge` (emoji), `summary`, `disclaimer`, and the `factors` prose belong in the API/frontend layer, not the engine.
+6. **Hardcoded identity fallbacks** — fabricated `"open-meteo:unknown"` id, `"open_meteo"` source, hardcoded `hazard_type="rainfall"`. Don't invent identity fields.
+7. **Redundant output keys** — both `id` and `hazard_id` returned.
+8. **Unsourced radius heuristic** — `compute_rainfall_polygon` radius scaling is a heuristic (now labelled in `geometry.py`); ideally grounded in a cited source or explicitly accepted as a limitation.
+9. **Docstring/`RISK_MODEL.md` duplication** — the module docstring re-states every threshold table → drift risk; trim to a pointer at `docs/RISK_MODEL.md`.
+10. **`models/hazard.py` doc inconsistency** — `probability` is documented as both `0.0–1.0` and `0 to 100%`; standardise on 0–100 (matches the engine's new percent handling).
+11. **Grid migration (big, blocked)** — grid builder + per-cell scoring + one `MultiPolygon` per class + a new story for a rain hazard's `affected_area` (currently `NOT NULL`). Blocked on the per-user-vs-shared-grid decision and team's `R`/`s`/region.
+
+### Git state (EOD)
+
+- Latest commit `dff1a0e` (`pipeline.py`) is pushed. `feature/risk-engine` in sync with `origin/feature/risk-engine`.
+- Uncommitted: `backend/app/risk/pipeline.py` (new), `backend/app/risk/session_log.md` (this entry). Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+
+### Next up
+
+- Hand `/api/risk-zones` wiring to Person 1 (or get owner's go-ahead): read `list_hazards_with_risk()` → wrap `affected_area` polygons into a GeoJSON `FeatureCollection` per `docs/API.md`; register router in `main.py`.
+- Remaining Person 2 review items: tests (`test_pipeline.py`/`test_geometry.py`/`test_rain.py`), geometry dedup (`rain.py`→`geometry.py`, carrying ±89.9-lat clamp + lon normalization), cleanup 6–10.
+- 🟢 **Unblocked by Person 1 (2026-10-13):** earthquake engine. Sequence: (1) `docs/RISK_MODEL.md` sections for attenuation/MMI + tsunami trigger; (2) `earthquake.py` + `_classify_earthquake`; (3) `geometry.py` concentric-ring primitive; (4) tsunami `secondary.py` (needs Natural Earth coastline + a P4 schema decision for storing a second `RiskResult`).

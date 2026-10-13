@@ -44,13 +44,13 @@ it must NEVER be described as absolute safety.
 
 from __future__ import annotations
 
-import ast
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
-import math
 import sys
 from typing import Any, Optional
+
+from app.risk.geometry import compute_rainfall_polygon
 
 
 @dataclass
@@ -119,61 +119,6 @@ WMO_DESCRIPTIONS: dict[int, str] = {
     97: "Heavy thunderstorm",
     99: "Thunderstorm with heavy hail",
 }
-
-
-def compute_rainfall_polygon(
-    latitude: float,
-    longitude: float,
-    severity_score: float,
-    num_points: int = 16,
-) -> dict[str, Any]:
-    """
-    Computes a valid GeoJSON Polygon representing the precipitation and runoff impact zone.
-
-    The radius scales deterministically with severity score:
-    - Low Risk (< 4.0): ~3 km to 5 km buffer (localized shower / grid cell footprint).
-    - Moderate Risk (4.0 - 6.9): ~5 km to 10 km buffer (drainage / waterlogging zone).
-    - High Risk (>= 7.0): ~10 km to 20 km buffer (flash flood catchment & storm cell).
-
-    Coordinates are formatted as [longitude, latitude] in accordance with RFC 7946 GeoJSON.
-    The first and last coordinate points are identical to form a closed linear ring.
-    """
-    score = max(0.0, min(10.0, float(severity_score)))
-    if score < 4.0:
-        radius_km = 3.0 + (score / 4.0) * 2.0
-    elif score < 7.0:
-        radius_km = 5.0 + ((score - 4.0) / 3.0) * 5.0
-    else:
-        radius_km = 10.0 + ((score - 7.0) / 3.0) * 10.0
-
-    lat_clamped = max(-89.9, min(89.9, float(latitude)))
-    lon_clamped = float(longitude)
-
-    lat_rad = math.radians(lat_clamped)
-    km_per_deg_lat = 111.32
-    # Prevent division by zero near poles
-    cos_lat = max(0.0001, math.cos(lat_rad))
-    km_per_deg_lon = 111.32 * cos_lat
-
-    delta_lat = radius_km / km_per_deg_lat
-    delta_lon = radius_km / km_per_deg_lon
-
-    ring: list[list[float]] = []
-    for i in range(num_points):
-        angle = (2.0 * math.pi * i) / num_points
-        pt_lat = round(lat_clamped + delta_lat * math.sin(angle), 6)
-        pt_lon = round(lon_clamped + delta_lon * math.cos(angle), 6)
-        # Normalize longitude to [-180, 180]
-        pt_lon = round((pt_lon + 180.0) % 360.0 - 180.0, 6)
-        ring.append([pt_lon, pt_lat])
-
-    # Close the polygon ring as required by GeoJSON specification
-    ring.append(ring[0])
-
-    return {
-        "type": "Polygon",
-        "coordinates": [ring],
-    }
 
 
 def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskResult:
@@ -309,32 +254,20 @@ def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskR
     )
 
 
-def process_precipitation_hazard(hazard: dict[str, Any] | str | Any) -> dict[str, Any]:
+def process_precipitation_hazard(hazard: dict[str, Any] | Any) -> dict[str, Any]:
     """
     Primary engine function for precipitation risk calculation.
 
-    Accepts:
-    - Normalized hazard dictionary from Person 1 (ingestion layer) or Person 4 (database).
-    - String representation (JSON or literal dict string, with optional 'output :' prefix).
-    - Pydantic Hazard model.
+    Accepts a normalized hazard dictionary (from Person 1's ingestion layer or
+    Person 4's database) or a Pydantic Hazard model. String parsing is a CLI
+    concern and lives in main(); the engine takes structured input only.
 
-    Returns:
-    - Structured dictionary containing risk_level, severity_score, GeoJSON affected_area,
-      and rich metadata ready for Person 3 (Frontend / MapLibre) and Person 4 (Database).
+    Returns a structured dictionary with risk_level, severity_score, GeoJSON
+    affected_area, and metadata ready for Person 3 (Frontend / MapLibre) and
+    Person 4 (Database).
     """
-    # 1. Handle string inputs (JSON, python dict literals, or terminal logs)
-    if isinstance(hazard, str):
-        cleaned = hazard.strip()
-        if cleaned.startswith("output :"):
-            cleaned = cleaned[len("output :"):].strip()
-        try:
-            data = json.loads(cleaned)
-        except Exception:
-            try:
-                data = ast.literal_eval(cleaned)
-            except Exception as exc:
-                raise ValueError(f"Could not parse input string into a dictionary: {exc}")
-    elif hasattr(hazard, "model_dump"):
+    # 1. Normalize the input into a plain dict
+    if hasattr(hazard, "model_dump"):
         data = hazard.model_dump()
     elif isinstance(hazard, dict):
         data = hazard.copy()
@@ -407,18 +340,19 @@ def process_precipitation_hazard(hazard: dict[str, Any] | str | Any) -> dict[str
         except (ValueError, TypeError):
             wmo_code = None
 
+    # Probability is a percentage (0-100) across providers. Treat every value as
+    # a percentage and clamp it — never guess a 0-1 fraction (that misreads a
+    # genuine 1% as 100%).
     prob = data.get("probability")
     if prob is None:
-        prob = specific.get("precipitation_probability") or data.get("precipitation_probability")
-    if prob is not None:
-        try:
-            prob_float = float(prob)
-            if 0.0 < prob_float <= 1.0:
-                prob_float *= 100.0
-        except (ValueError, TypeError):
-            prob_float = 100.0
-    else:
+        prob = specific.get("precipitation_probability")
+    if prob is None:
+        prob = data.get("precipitation_probability")
+    try:
+        prob_float = float(prob)
+    except (TypeError, ValueError):
         prob_float = 100.0
+    prob_float = min(100.0, max(0.0, prob_float))
 
     # 8. Build typed input and compute risk
     calc_input = PrecipitationInput(
@@ -484,7 +418,11 @@ def main() -> None:
             raw_input = piped
 
     if raw_input:
-        output = process_precipitation_hazard(raw_input)
+        try:
+            parsed = json.loads(raw_input)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"Could not parse input as JSON: {exc}")
+        output = process_precipitation_hazard(parsed)
     else:
         # Default representative payload from Open-Meteo ingestion pipeline
         hazard_data = {
