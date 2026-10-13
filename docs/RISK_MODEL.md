@@ -64,25 +64,36 @@ so the UI can show *why* (§ 6).
 ## 3. Hazard — rainfall (Open-Meteo)
 
 Inputs (per grid cell, from Open-Meteo `hourly`): `precipitation`, `precipitation_probability`,
-`wind_speed_10m`, `wind_gusts_10m`, `weather_code`.
+`wind_speed_10m`, `wind_gusts_10m`, `weather_code`. Assessment window:
+`time_window_hours` = `1` (hourly rate, § 3.1) or `24` (accumulation, § 3.2).
 
 ### 3.1 Intensity thresholds (hourly rate)
 
-| Risk contribution | Condition (mm/h) | Base score | Justification | Source | Limitations |
+Hourly bands follow the **India Meteorological Department (IMD)** rainfall *spell-rate*
+classification (cm/h converted to mm/h; 1 cm = 10 mm). This matches the implemented
+engine in `backend/app/risk/rain.py`.
+
+| Risk level | Condition (mm/h) | severity_score | Justification | Source | Limitations |
 |---|---|---|---|---|---|
-| Light | < 2.5 | 0 → 3.5 (linear) | Impact below drainage capacity in most layouts | WMO / UK Met Office intensity classes | Local drainage capacity varies; linear ramp is a working assumption |
-| Moderate | 2.5 – 7.6 | 4.0 → 6.5 (linear) | Surface ponding, street flooding possible in urban areas | WMO / UK Met Office | City-scale |
-| Heavy | 7.6 – 15.0 | 7.0 → 8.5 (linear) | Flash-flood and drainage-overflow potential | WMO / UK Met Office | Not terrain-aware |
-| Violent/Torrential | > 15.0 | 8.5 → 10.0 (log-clamped) | Severe flash-flood, infrastructure stress | WMO / UK Met Office | Sustainment duration matters more than peak |
+| LOW | < 10 | 0.0 – 3.9 | IMD **Light spell** (< 1 cm/h); standard municipal drainage absorbs the runoff | IMD | Clogged drains / poor local topography may still pool |
+| MODERATE | 10 – 20 | 4.0 – 6.9 | IMD **Moderate spell** (1–2 cm/h); runoff accumulates on roadways | IMD | Antecedent ground saturation not modelled without soil moisture |
+| HIGH | 20 – 30 | 7.0 – 8.4 | IMD **Intense spell** (2–3 cm/h); localised surface-water accumulation and flooding | IMD | Duration matters; brief bursts differ from sustained downpours |
+| HIGH | 30 – 50 | 8.5 – 9.4 | IMD **Very intense spell** (3–5 cm/h); waterlogging and grid disruption | IMD | Runoff velocity depends on slope and impermeability |
+| HIGH | 50 – 100 | 9.5 – 10.0 | IMD **Extremely intense spell** (5–10 cm/h); severe flash-flood risk | IMD | Gauge/radar needed to separate intense bursts from sustained rates |
+| HIGH | > 100 | 10.0 | IMD **Cloudburst** (> 10 cm/h) | IMD | Cloudbursts are highly localised; the forecast grid may miss the peak |
 
 ### 3.2 Accumulation thresholds (24-hour total)
 
-| Risk contribution | Condition (mm/24h) | Base score | Justification | Source | Limitations |
-|---|---|---|---|---|---|
-| Light | < 15.5 | 0 → 3.5 | Below typical channel/street capacity | IMD / NOAA guidance | Regional |
-| Moderate | 15.6 – 64.4 | 4.0 → 6.5 | Persistent rain, waterlogging | IMD / NOAA | — |
-| Heavy | 64.5 – 115.5 | 7.0 → 8.5 | Widespread flooding risk | IMD / NOAA | Catchment-specific |
-| Very heavy | > 115.5 | 8.5 → 10.0 | Severe, multi-day flooding | IMD / NOAA | Rare-event statistics weak |
+24-hour bands follow the **IMD** official rainfall classification (Light 2.5–15.5,
+Moderate 15.6–64.4, Heavy 64.5–115.5, Very Heavy 115.6–204.4, Extremely Heavy ≥ 204.5 mm),
+mapped onto SafeGrid's three levels:
+
+| Risk level | Condition (mm/24h) | severity_score | Justification | Source |
+|---|---|---|---|---|
+| LOW | < 15.5 | 0.0 – 3.9 | IMD **Light**; insignificant catchment saturation | IMD |
+| MODERATE | 15.5 – 64.4 | 4.0 – 6.9 | IMD **Moderate**; prolonged soaking, rising water tables, localised pooling | IMD |
+| HIGH | 64.5 – 115.5 | 7.0 – 8.4 | IMD **Heavy**; regional waterlogging, drainage overwhelm | IMD |
+| HIGH | > 115.5 | 8.5 – 10.0 | IMD **Very Heavy / Extremely Heavy**; severe inundation potential | IMD |
 
 ### 3.3 Compounding modifiers (applied to `hazard_index`, not the final score)
 
@@ -92,6 +103,9 @@ Inputs (per grid cell, from Open-Meteo `hourly`): `precipitation`, `precipitatio
 | gusts ≥ 45 km/h or speed ≥ 35 km/h | +0.8 | Moderate wind coupling | WMO |
 | WMO 95 / 96 / 99 (thunderstorm, ±hail) | floor ≥ 7.0 | Convective storms → rapid onset | WMO weather codes |
 | WMO 82 (violent showers) | floor ≥ 7.0 | Extreme convective rates | WMO weather codes |
+
+Forecast `precipitation_probability` < 40% while rain is forecast flags high uncertainty —
+surfaced as a confidence downgrade (§ 6.1), **not** a change to the score itself.
 
 ### 3.4 Phase-3 upgrade — return period (statistical anchor)
 
@@ -112,8 +126,9 @@ Replace "linear ramp with qualitative labels" with comparison against regional
 ## 4. Hazard — multi-cell footprint (replaces the fabricated circle)
 
 **The affected-area polygon is derived from data, not from a severity score.**
-Fabricated circles (`radius = f(score)`) are forbidden for rainfall risk. Keep
-`compute_rainfall_polygon` only as an explicit debug/fallback labelled "approximate".
+Fabricated circles (`radius = f(score)`, e.g. the v1 3/5/10 km steps) are forbidden
+for rainfall risk. Keep `compute_rainfall_polygon` only as an explicit
+debug/fallback labelled "approximate".
 
 Algorithm:
 
@@ -287,4 +302,8 @@ P4 has verified one region.
 | Date | Change | Author |
 |---|---|---|
 | 2026-10-06 | Initial placeholder scaffold | scaffold |
+| 2026-10-08 | Documented rainfall/weather thresholds, compounding factors, and affected-area scaling (justifications moved from `rain.py`) | Person 2 |
+| 2026-10-11 | Switched hourly bands to IMD spell-rate (10/20/30/50/100 mm/h); attributed hourly and 24-hour bands to IMD; full WMO weather-code table (incl. 97) | Person 2 |
+| 2026-10-11 | Added provider `data_type` → `hazard_type` mapping (`weather`→`rainfall`, `seismic`→`earthquake`); `identify_hazard()` skips unmapped labels | Person 2 |
 | 2026-10-11 | v2 spec: risk framework, data-derived footprint, confidence, exposure/vulnerability, calibration plan | Person 1 |
+| 2026-10-13 | Merge resolution: v2 framework kept as backbone; adopted IMD rainfall thresholds (matches `rain.py`); data-derived grid footprint supersedes the v1 radius-from-score rule | Person 1 |
