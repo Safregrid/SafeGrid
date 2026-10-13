@@ -247,7 +247,7 @@ Full 10-item review of `backend/app/risk/`: 2 blockers, 3 must-fix, 5 cleanup.
 
 - Three layers worked in isolation but were never connected: ingestion writes `data_records`; the risk engine classifies a `Hazard`→`RiskResult`; the DB has `hazards`+`risk_results` and `/api/hazards`. **Nothing turned `data_records` into hazards, ran the engine, or wrote results** → the engine never ran and `/api/risk-zones` was always empty. The missing piece is a connective segment (the "middle pipe"), not broken logic.
 
-### Built: `backend/app/risk/pipeline.py` (uncommitted)
+### Built: `backend/app/risk/pipeline.py` (committed `dff1a0e`, pushed)
 
 - Person 2's seam composing the classifier + Person 4 repository, no hazard logic of its own.
 - `evaluate(record) -> RiskResult | None`: `identify_hazard()` → (skip if `None`) → `classify()`; no persistence.
@@ -274,7 +274,7 @@ Full 10-item review of `backend/app/risk/`: 2 blockers, 3 must-fix, 5 cleanup.
 - 🔴 **Open input: which GMPE** (candidate USGS ShakeMap Worden et al. 2012 MMI, or an India-region relation) — coefficients/source/limitations must be cited before any code. Fixed the stale "Richter magnitude" placeholder text.
 - Also captured (not yet in RISK_MODEL): the **adaptive-refresh** discussion for the rain grid — rolling 24h window + UTC-hour-aligned polling are good; tightening the **whole** 625-cell grid during HIGH is a quota trap (7.5k/day already at a 2h cadence) → refresh a **small affected subset** fast, keep the full grid slow, add hysteresis + a daily budget guard; the 15-min full-grid cadence is dropped. P4 must store `generated_at` per zone for a dynamic `is_live`.
 
-### rain.py / geometry.py cleanup (afternoon, uncommitted)
+### rain.py / geometry.py cleanup (afternoon, committed `8dcca71`, pushed)
 
 - 🟢 **Geometry dedup (review must-fix closed):** `point_circle()` primitive + `compute_rainfall_polygon()` (score→radius) + `concentric_rings()` now live **only** in `geometry.py`. `rain.py` imports `compute_rainfall_polygon` from there (verified same function object). Carried the ±89.9-lat clamp + lon-normalization into the single copy. Deleted the **dead** `compute_affected_area()` (zero callers) from `geometry.py`.
 - 🟢 **Concentric rings prepared for `earthquake.py`:** `concentric_rings(lat, lon, radii_km, num_points=24) -> list[Polygon]` (nested circles; annulus bands = difference of consecutive rings, documented). Not wired to anything yet.
@@ -300,11 +300,12 @@ Full 10-item review of `backend/app/risk/`: 2 blockers, 3 must-fix, 5 cleanup.
 
 ### Git state (EOD)
 
-- Latest commit `dff1a0e` (`pipeline.py`) is pushed. `feature/risk-engine` in sync with `origin/feature/risk-engine`.
-- Uncommitted: `backend/app/risk/pipeline.py` (new), `backend/app/risk/session_log.md` (this entry). Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+- **Pushed today:** `dff1a0e` (`pipeline.py` seam), `8dcca71` (geometry dedup + rain cleanup + earthquake spec), `81b46d5` (quick-ref sync). `feature/risk-engine` in sync with `origin/feature/risk-engine`.
+- `pipeline.py`: committed & pushed in the pipeline-seam session (`dff1a0e`); **no changes since — up to date**.
+- Working tree: clean. Untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
 
 ### Next up
 
 - Hand `/api/risk-zones` wiring to Person 1 (or get owner's go-ahead): read `list_hazards_with_risk()` → wrap `affected_area` polygons into a GeoJSON `FeatureCollection` per `docs/API.md`; register router in `main.py`.
-- Remaining Person 2 review items: tests (`test_pipeline.py`/`test_geometry.py`/`test_rain.py`), geometry dedup (`rain.py`→`geometry.py`, carrying ±89.9-lat clamp + lon normalization), cleanup 6–10.
+- Remaining Person 2 review items: tests (`test_pipeline.py`/`test_geometry.py`/`test_rain.py`) and the cleanup backlog — see the **11-task list** above. Geometry dedup ✅ closed (2026-10-13).
 - 🟢 **Unblocked by Person 1 (2026-10-13):** earthquake engine. Sequence: (1) `docs/RISK_MODEL.md` sections for attenuation/MMI + tsunami trigger; (2) `earthquake.py` + `_classify_earthquake`; (3) `geometry.py` concentric-ring primitive; (4) tsunami `secondary.py` (needs Natural Earth coastline + a P4 schema decision for storing a second `RiskResult`).
