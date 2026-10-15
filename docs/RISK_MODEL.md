@@ -124,30 +124,79 @@ Replace "linear ramp with qualitative labels" with comparison against regional
 
 ---
 
-## 4. Hazard — multi-cell footprint (replaces the fabricated circle)
+## 4. Hazard — rainfall geometry is the grid (circles forbidden)
 
-**The affected-area polygon is derived from data, not from a severity score.**
-Fabricated circles (`radius = f(score)`, e.g. the v1 3/5/10 km steps) are forbidden
-for rainfall risk. Keep `compute_rainfall_polygon` only as an explicit
-debug/fallback labelled "approximate".
+**The affected area is derived from the grid, never from a severity score.** A
+fabrication like `radius = f(score)` (the v1 3/5/10 km steps) is forbidden for
+rainfall. There is **no circle fallback** — if a cell cannot be scored it is
+*no data*, not an invented approximation.
 
-Algorithm:
+- **Per hazard:** the affected area is the **grid cell** (a square) containing the
+  hazard location — one cell, one polygon (`backend/app/risk/grid.py`). Under the
+  current pipeline this is what `rain.py` writes to `RiskResult.affected_area`,
+  and `/api/risk-zones` renders the square (it accepts `Polygon`/`MultiPolygon`).
+- **Standing layer:** a whole region is scored cell-by-cell into a snapshot
+  (§ 4.1) — the primary rainfall product that answers "what is the risk here?".
+- **Cell size** is a config parameter (`GridSpec.cell_size_deg`), not a constant;
+  the default is **0.1° (~11 km)** — the Open-Meteo model resolution, so no
+  precision is fabricated. Final value pending § 10 decision 7.
 
-1. Around the hazard location, build a **grid of points** (e.g. 7×7 at ~0.2° spacing,
-   configurable per region). One Open-Meteo request with comma-separated
-   `latitude`/`longitude` arrays (up to 1000 coords) returns per-location results.
-2. Compute `hazard_index` per cell (§ 3).
-3. Select cells above a threshold (default **≥ MODERATE**, i.e. score ≥ 4.0).
-4. Polygon = **union of buffered qualifying cells** (shapely `unary_union`, cell-radius buffer)
-   or **convex hull of qualifying centers** — choose one per region, document in § 10.
-5. Output: one GeoJSON `Polygon` with the same `risk_zones` feature contract as v1.
+> **WORKING ASSUMPTION**: cell size and the peak-hour window are calibrated per
+> region during § 8. They are not physical boundaries.
 
-> **WORKING ASSUMPTION**: grid spacing, window extent, and cell-buffer radius are calibrated
-> per region during § 8. They are not physical boundaries.
+**Earthquake (USGS)** stays an **event / attenuation model** — circles are correct
+there because intensity decays with distance from a source, and the radii come
+from a cited MMI relation (not a score). Full specification — input contract,
+magnitude decision, MMI thresholds, rings — is in **§ 12**.
 
-**Earthquake (USGS)** stays an **event / attenuation model** (not a grid, and not a circle
-from a "score"): intensity is derived from a cited MMI relation. Full specification —
-input contract, magnitude decision, MMI thresholds, rings — is in **§ 12**.
+### 4.1 Regional risk grid (precomputed snapshot → point lookup)
+
+§ 4 above is the **event-local** footprint: a small grid *around one reported hazard*,
+used to derive that hazard's `affected_area`. This subsection is a different object — a
+**standing regional grid** that scores a whole area of interest in advance, so a user's
+location can be answered instantly from a snapshot.
+
+- **The grid is config, not a place.** A grid is just a **cell size + a region bound
+  box**; a named region (a state, a district, the whole country) is one bbox supplied as
+  data. Nothing in the code names or hardcodes a region. Cells are indexed against a
+  **fixed global anchor** (`-90`, `-180`), so a cell's `cell_id` is stable when the region
+  grows — adding a state later does not invalidate the cells already scored.
+- **A cell is not a hazard event.** Event hazards keep the existing
+  `hazard_id` → `affected_area` contract (§ 6). Grid cells live in their **own storage**
+  (e.g. `grid_cells(cell_id, lat, lon, cell_size, risk_level, severity_score,
+  precipitation_mm, computed_at)`), because `risk_results.affected_area` is `NOT NULL` and
+  keyed by `hazard_id`. *(Storage/retrieval: Person 4.)*
+- **Scoring a cell:** a cell is classified at its **peak forecast hour within a window**
+  (default **24 h from now**), using the § 3 hourly bands (`time_window_hours = 1`).
+  A whole-region run scores every cell and produces **one immutable snapshot**.
+- **Run whenever called.** Scoring is a **pure function**
+  (`score_grid(spec, forecasts) -> snapshot`); planning a run
+  (`cell_requests(spec, region)`) and fetching the weather for those coordinates are
+  separate. There is no timer, cadence, or quota logic here — **Person 1 decides how often
+  to fetch and calls the run**.
+- **Serving a user is a lookup into a snapshot**, not new computation: map the point to
+  its cell (`grid.py`) and read that cell's result.
+- **Output shape.** Per cell the model stores `risk_level`, `severity_score`, the cell
+  polygon, and `computed_at`. The **user-facing answer returns all four** —
+  `risk_level` + `severity_score` + cell polygon + `computed_at` — and leaves it to the
+  caller/UI to decide whether to display the score.
+- **Out-of-grid is not LOW.** A point **outside the region** returns an explicit
+  *outside-coverage* result; a point inside the region but in an **unscored cell** returns
+  *no-data*. Neither is ever reported as `LOW` (see the non-negotiable in § 1).
+
+> **WORKING ASSUMPTION**: the default **cell size is 0.1° (~11 km)** — the Open-Meteo model
+> resolution, so no precision is fabricated — and the peak-hour **window is 24 h**. Both are
+> parameters, not constants; final values are pending (**§ 10, decision 7**).
+>
+> **DEFERRED (not implemented):** hour selection is currently **positional** (first *N*
+> samples). A **temporal** window — filter samples to `[now, now + N h)` using each sample's
+> timestamp — plus a separately configured **fetch horizon** (e.g. 72 h) is logged as a
+> future update; it decouples fetch size from the scoring window. See
+> `backend/app/risk/session_log.md` (2026-10-15).
+
+**Ownership:** the grid maths, per-cell scoring, snapshot, and the pure "risk at this
+point" helper are **Person 2**; the HTTP endpoint that calls it per request is **Person 1**;
+snapshot storage and freshness are **Person 4**.
 
 ---
 
@@ -276,11 +325,12 @@ Metrics to display on the portal (define thresholds in § 10):
 | # | Decision | Owner | Target |
 |---|---|---|---|
 | 1 | `weather → rainfall` hazard_type mapping | P1 + P2 | before wiring |
-| 2 | Polygon method: union-of-buffers vs convex hull | P2 | Ph2 |
-| 3 | Grid spacing / window / buffer radius per region | P2 | Ph2 |
+| 2 | ~~Polygon method: union-of-buffers vs convex hull~~ **CLOSED** — rainfall geometry = grid cells (no buffers/hull/circle), § 4 | P2 | done |
+| 3 | Event-local grid spacing per region | P2 | Ph2 |
 | 4 | Earthquake GMPE selection (spec drafted in § 12) | P2 | Ph2 |
 | 5 | Raster aggregation rule | P2 | Ph2 |
 | 6 | POD/FAR/CSI threshold targets | P1 + P2 | Ph4 |
+| 7 | Regional-grid cell size + peak-hour window (§ 4.1) | P1 + P2 | before grid serving |
 
 ## 11. Implementation phases (each independently shippable & honest)
 
@@ -376,3 +426,5 @@ Proposed mapping (severity 0.0–10.0), to be confirmed with the GMPE:
 | 2026-10-13 | Merge resolution: v2 framework kept as backbone; adopted IMD rainfall thresholds (matches `rain.py`); data-derived grid footprint supersedes the v1 radius-from-score rule | Person 1 |
 | 2026-10-13 | Replace earthquake placeholder with a specification draft: USGS input contract, India bbox scope, locked no-conversion magnitude decision (Richter/ML rejected), MMI-based threshold framework, concentric-ring affected area. **GMPE still unselected; no code.** | Person 2 |
 | 2026-10-15 | Merge of `feature/data-ingestion` into `feature/risk-engine`: kept Person 1's v2 framework; re-applied Person 2's earthquake spec as § 12; pointer fixes in § 4 / § 10 | Person 2 |
+| 2026-10-15 | Added § 4.1 regional risk grid (precomputed snapshot → point lookup): region-agnostic config grid, peak-hour scoring, out-of-grid ≠ LOW, user-facing output = level + polygon + computed_at; open decision 7 (cell size + window) | Person 2 |
+| 2026-10-15 | Rain geometry switched to the grid: § 4 rewritten — rainfall affected area = the grid cell (square), `compute_rainfall_polygon` removed, no circle fallback; circles are earthquake-only (§ 12). Decision 2 closed | Person 2 |

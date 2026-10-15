@@ -4,11 +4,16 @@ Affected-area geometry toolkit for SafeGrid.
 Owner: Person 2 (Risk Engine & Geospatial Processing)
 Branch: feature/risk-engine
 
-Shared, hazard-agnostic GeoJSON geometry primitives composed by the risk engines
-(rain.py, earthquake.py). This module holds NO hazard knowledge — it draws
-shapes; the engines decide the radii/thresholds that feed it.
+Shared, hazard-agnostic GeoJSON geometry primitives composed by the risk engines.
+This module holds NO hazard knowledge — it draws shapes; the engines decide the
+radii/thresholds that feed it.
 
-Coordinate convention: RFC 7946 GeoJSON, [longitude, latitude], closed rings.
+These are **circle** primitives: they model an *event* footprint whose extent
+decays with distance from a source (earthquake intensity rings, driven by the
+engine's attenuation relation). Rainfall is NOT an event footprint — its geometry
+is the regular grid in grid.py (one square per cell), so no circle helper is used
+for rain. Coordinate convention: RFC 7946 GeoJSON, [longitude, latitude], closed
+rings.
 """
 
 from __future__ import annotations
@@ -55,34 +60,6 @@ def point_circle(
         "type": "Polygon",
         "coordinates": [ring],
     }
-
-
-def compute_rainfall_polygon(
-    latitude: float,
-    longitude: float,
-    severity_score: float,
-    num_points: int = 16,
-) -> dict[str, Any]:
-    """
-    Closed GeoJSON Polygon for the precipitation/runoff impact footprint around
-    a point. The radius scales with the severity score:
-
-    - Low Risk (< 4.0): ~3 km to 5 km buffer (localized shower / grid-cell footprint).
-    - Moderate Risk (4.0 - 6.9): ~5 km to 10 km buffer (drainage / waterlogging zone).
-    - High Risk (>= 7.0): ~10 km to 20 km buffer (flash-flood catchment & storm cell).
-
-    ⚠️ This radius scaling is a heuristic, not a sourced physical relation; see
-    docs/RISK_MODEL.md (affected-area section).
-    """
-    score = max(0.0, min(10.0, float(severity_score)))
-    if score < 4.0:
-        radius_km = 3.0 + (score / 4.0) * 2.0
-    elif score < 7.0:
-        radius_km = 5.0 + ((score - 4.0) / 3.0) * 5.0
-    else:
-        radius_km = 10.0 + ((score - 7.0) / 3.0) * 10.0
-
-    return point_circle(latitude, longitude, radius_km, num_points=num_points)
 
 
 def concentric_rings(

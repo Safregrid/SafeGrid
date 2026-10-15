@@ -9,35 +9,17 @@ Accepts normalized precipitation hazard events (produced by Person 1's Open-Mete
 ingestion or Person 4's database layer) and calculates:
 1. Deterministic risk level (LOW, MODERATE, HIGH)
 2. Continuous severity score (0.0 to 10.0)
-3. GeoJSON Polygon affected-area geometry for MapLibre rendering (Person 3)
+3. GeoJSON Polygon geometry for MapLibre rendering (Person 3): the **grid cell**
+   containing the hazard location (see docs/RISK_MODEL.md § 4.1). Rainfall is
+   gridded — fabricated circles are not used for rain.
 
 Presentation (badges, summaries, disclaimers, human-readable factor prose) is
 NOT produced here — that belongs to the API/frontend layer.
 
-Scientific Threshold Justifications:
-- Hourly precipitation thresholds follow the India Meteorological Department (IMD)
-  rainfall spell-rate classification (IMD expresses intensity as a spell rate in
-  cm/h; 1 cm = 10 mm):
-    - Light spell: < 1 cm/h (< 10 mm/h) -> LOW (Score 0.0 - 3.9)
-    - Moderate spell: 1 - 2 cm/h (10 - 20 mm/h) -> MODERATE (Score 4.0 - 6.9)
-    - Intense spell: 2 - 3 cm/h (20 - 30 mm/h) -> HIGH (Score 7.0 - 8.4)
-    - Very intense spell: 3 - 5 cm/h (30 - 50 mm/h) -> HIGH (Score 8.5 - 9.4)
-    - Extremely intense spell: 5 - 10 cm/h (50 - 100 mm/h) -> HIGH (Score 9.5 - 10.0)
-    - Cloudburst: > 10 cm/h (> 100 mm/h) -> HIGH (Score 10.0)
-- 24-Hour accumulation thresholds follow the India Meteorological Department (IMD)
-  standard rainfall classification:
-    - Light: < 15.5 mm / 24h (LOW)
-    - Moderate: 15.6 - 64.4 mm / 24h (MODERATE)
-    - Heavy: 64.5 - 115.5 mm / 24h (HIGH)
-    - Very heavy: > 115.5 mm / 24h (HIGH)
-- Weather codes are the WMO weather interpretation codes (WW, WMO-No. 306) as
-  returned by Open-Meteo; IMD, as a WMO member, uses the same synoptic codes.
-- Compounding factors (Open-Meteo meteorological parameters):
-    - Wind gusts >= 65 km/h or sustained speed >= 50 km/h: adds power-line /
-      infrastructure failure hazard modifier (+1.5 score).
-    - Moderate wind gusts >= 45 km/h: (+0.8 modifier).
-    - WMO Convective Storm codes (95, 96, 97, 99: Thunderstorms; 82: Violent showers):
-      imposes a HIGH risk floor (score >= 7.0).
+Thresholds, sources and justifications are NOT restated here, to avoid drift with
+the single source of truth:
+- docs/RISK_MODEL.md § 3 — rainfall intensity, accumulation, compounding factors.
+- docs/RISK_MODEL.md § 5 — risk-level bands and severity scale.
 
 MANDATORY SAFETY RULE:
 Low risk (GREEN) indicates low hazard relative to the threshold;
@@ -52,7 +34,13 @@ import json
 import sys
 from typing import Any, Optional
 
-from app.risk.geometry import compute_rainfall_polygon
+from app.risk.grid import GridSpec, cell_at
+
+# Grid resolution for the per-hazard rainfall affected-area cell.
+# WORKING ASSUMPTION (docs/RISK_MODEL.md § 4.1, open decision 7): 0.1 deg ~ 11 km,
+# the Open-Meteo model resolution — no finer than the data supports. Overridable
+# per call; the standing regional grid (rain_grid.py) carries its own spec.
+DEFAULT_GRID_SPEC = GridSpec(cell_size_deg=0.1)
 
 
 @dataclass
@@ -200,13 +188,20 @@ def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskR
     )
 
 
-def process_precipitation_hazard(hazard: dict[str, Any] | Any) -> dict[str, Any]:
+def process_precipitation_hazard(
+    hazard: dict[str, Any] | Any,
+    spec: GridSpec | None = None,
+) -> dict[str, Any]:
     """
     Primary engine function for precipitation risk calculation.
 
     Accepts a normalized hazard dictionary (from Person 1's ingestion layer or
     Person 4's database) or a Pydantic Hazard model. String parsing is a CLI
     concern and lives in main(); the engine takes structured input only.
+
+    The affected-area geometry is the **grid cell** containing the hazard
+    location (docs/RISK_MODEL.md § 4.1) — a square, not a severity-fabricated
+    circle. `spec` selects the grid resolution; defaults to DEFAULT_GRID_SPEC.
 
     Returns a structured dictionary with risk_level, severity_score, GeoJSON
     affected_area, and metadata ready for Person 3 (Frontend / MapLibre) and
@@ -220,7 +215,13 @@ def process_precipitation_hazard(hazard: dict[str, Any] | Any) -> dict[str, Any]
     else:
         data = dict(hazard)
 
-    hazard_id = str(data.get("id") or data.get("hazard_id") or "open-meteo:unknown")
+    hazard_id = data.get("id") or data.get("hazard_id")
+    if not hazard_id:
+        raise ValueError(
+            "hazard id is required (neither 'id' nor 'hazard_id' provided)"
+        )
+    hazard_id = str(hazard_id)
+    # Open-Meteo is SafeGrid's sole ingestion source, so this default is safe.
     source = str(data.get("source") or "open_meteo")
 
     # 2. Timestamp extraction
@@ -232,19 +233,26 @@ def process_precipitation_hazard(hazard: dict[str, Any] | Any) -> dict[str, Any]
     else:
         time_str = datetime.now(timezone.utc).isoformat()
 
-    # 3. Coordinate extraction with fallback to GeoJSON location
+    # 3. Coordinate extraction from explicit lat/lon or a GeoJSON location.
+    #    No (0, 0) fallback: missing coordinates fail loud rather than placing a
+    #    fabricated zone in the Gulf of Guinea.
     lat = data.get("latitude")
     lon = data.get("longitude")
     if lat is None or lon is None:
         loc = data.get("location")
+        coords = None
         if isinstance(loc, dict):
-            coords = loc.get("coordinates", [0.0, 0.0])
-            lon, lat = coords[0], coords[1]
+            coords = loc.get("coordinates")
         elif hasattr(loc, "coordinates"):
             coords = loc.coordinates
-            lon, lat = coords[0], coords[1]
-    latitude = float(lat if lat is not None else 0.0)
-    longitude = float(lon if lon is not None else 0.0)
+        if not coords or len(coords) < 2:
+            raise ValueError(
+                "hazard coordinates are required "
+                "(latitude/longitude or location.coordinates)"
+            )
+        lon, lat = coords[0], coords[1]
+    latitude = float(lat)
+    longitude = float(lon)
 
     # 4. Specific data extraction (handles raw dict or JSON string from DB)
     specific = data.get("specific_data")
@@ -314,8 +322,9 @@ def process_precipitation_hazard(hazard: dict[str, Any] | Any) -> dict[str, Any]
     )
     result = calculate_precipitation_risk(calc_input)
 
-    # 9. Compute GeoJSON affected area polygon
-    affected_area = compute_rainfall_polygon(latitude, longitude, result.severity_score)
+    # 9. Affected area = the grid cell containing the hazard location (square).
+    grid_spec = spec or DEFAULT_GRID_SPEC
+    affected_area = cell_at(grid_spec, latitude, longitude).polygon()
 
     calc_now = datetime.now(timezone.utc).isoformat()
     notes = (

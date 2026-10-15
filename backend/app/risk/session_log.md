@@ -11,15 +11,18 @@
 ## Current State (quick reference)
 
 - **Last updated:** 2026-10-15
-- **Branch:** `feature/risk-engine` — **2 commits ahead of `origin/feature/risk-engine`** (not pushed): `d029915` (rain cleanup), `55dd2fc` (merge of `origin/feature/data-ingestion`).
-- **Subsystem:** `backend/app/risk/` (rainfall engine implemented; geometry toolkit; earthquake spec'd, not coded)
-- **Working tree:** clean except untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+- **Branch:** `feature/risk-engine` — **3 commits ahead of `origin/feature/risk-engine`** (not pushed): `d029915` (rain cleanup), `55dd2fc` (merge of `origin/feature/data-ingestion`), `3dc2dbe` (session log).
+- **Subsystem:** `backend/app/risk/` (rainfall engine implemented; geometry toolkit (circles = earthquake-only); grid toolkit + regional scoring added; rain affected-area now grid-based; earthquake spec'd, not coded)
+- **Working tree:** **uncommitted grid work** — untracked `backend/app/risk/grid.py`, `backend/app/risk/rain_grid.py`, `backend/tests/test_risk/test_grid.py`, `backend/tests/test_risk/test_grid_scoring.py`, `backend/tests/test_risk/test_rain.py`; modified `backend/app/risk/rain.py`, `backend/app/risk/geometry.py`, `docs/RISK_MODEL.md`. Also untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
   - Standing permission (2026-10-11): Person 2 grants commit/push of `session_log.md` at will — **this file only**.
 - **Blocker 2 CLOSED (Person 1, `dc525cb`):** `/api/risk-zones` implemented (`backend/app/api/risk_zones.py`) + registered in `main.py`; `list_hazards_with_risk()` → GeoJSON `FeatureCollection`; 3 API tests (`tests/test_api/test_risk_zones_api.py`). `is_live` hardcoded `False` (honest default until P4 freshness lands).
 - **`docs/RISK_MODEL.md` is now Person 1's v2 framework** (Risk = Hazard × Exposure × Vulnerability, phases P0–P4) with Person 2's earthquake spec retained as **§ 12**.
 - **Rain engine cleanup (Person 2, `d029915`, 2026-10-15):** dropped `badge`/`summary`/`factors`/`disclaimer` prose, stale `duration` fallback, duplicate `id` key; standardised `Hazard.probability` docs to 0–100%. `pytest`: **18 passed**.
+- **Regional grid (Person 2, 2026-10-15, uncommitted):** `grid.py` + `rain_grid.py` + 24 tests; `pytest`: **42 passed**. Region-agnostic config grid → precomputed snapshot → point lookup; out-of-grid ≠ LOW; user-facing output = level + cell polygon + `computed_at`. Spec in `docs/RISK_MODEL.md` § 4.1.
+- **Rain → grid geometry (Person 2, 2026-10-15, uncommitted):** `rain.py` affected area is now the **grid cell** (square) containing the hazard location, not a severity-fabricated circle; `compute_rainfall_polygon` **deleted** (circles reserved for earthquake). +10 `rain.py` engine tests (backlog **#1 done**). `pytest`: **52 passed**.
+- **Rain.py cleanup #6 + #9 (Person 2, 2026-10-15, uncommitted):** **#9** docstring threshold tables replaced with a pointer to `RISK_MODEL.md` § 3/§ 5 (safety rule kept inline); **#6** fail loud on missing hazard `id`/coordinates (no `"open-meteo:unknown"`, no `(0, 0)`), `source` fallback **kept** (Open-Meteo is SafeGrid's sole source). +5 tests. `pytest`: **57 passed**. **#4 deferred** by P2 (CLI stays in `rain.py`).
 - **Branch vs `main`:** `origin/main` merged into `feature/risk-engine` earlier (`11ffb82`). Local `main` = `7362ac7` = `origin/main`.
-- **Next up:** 🟠 rain.py 11-task list — task 1 (tests, `tests/test_risk/` still a stub) is the highest-value unblocked item; #2 (`window > 1` → 24h) and #8 (unsourced radius heuristic) postponed by P2; #6 (hardcoded id/source fallbacks) awaiting P2 approval; #4 (move CLI to `scripts/`) and #9 (docstring duplication of RISK_MODEL) offered, not yet done; #11 grid migration blocked on the per-user-vs-shared decision. Earthquake: RISK_MODEL § 12 drafted; **pick the GMPE** then build `earthquake.py`.
+- **Next up:** 🟠 (a) no further grid work until P1/P4 settle the endpoint + storage contract; (b) rain.py backlog remaining: **#4** (move `main()` CLI to `backend/scripts/`) pending P2; **#6/#9 done** (2026-10-15); **#2 accepted as a documented limitation** (grid path bypasses it; 24h bands still needed by the per-event/daily path); **#8 obsolete** (`compute_rainfall_polygon` deleted). Earthquake: RISK_MODEL § 12 drafted; **pick the GMPE** then build `earthquake.py`.
 - **Reminder:** send the short WhatsApp summary to the team (architecture proposal drafted 2026-10-12, pending their input).
 
 ### Cross-team status (as of 2026-10-11)
@@ -344,4 +347,136 @@ Full 10-item review of `backend/app/risk/`: 2 blockers, 3 must-fix, 5 cleanup.
 
 - Finish the rain.py backlog: #1 tests (`tests/test_risk/` still a stub) first; then #4/#6/#9 (pending P2) and #11 (grid, blocked).
 - Earthquake: `RISK_MODEL.md` § 12 stays preliminary — **select the GMPE**, then `earthquake.py` + `_classify_earthquake`; concentric rings primitive already exists in `geometry.py`.
+
+---
+
+## 2026-10-15 — Regional grid toolkit (`grid.py` + `rain_grid.py`)
+
+### Decision: general grid, not a region-specific one
+
+- P2 confirmed the earlier per-user-vs-shared tension by choosing a **general regional grid**: a grid is **cell size + region bbox**, and a named region is just data. **No region (Karnataka or otherwise) is hardcoded** — Karnataka is unconfirmed, so nothing is baked in.
+- **Global anchor** (`-90`, `-180`): cells are indexed globally, so a `cell_id` is stable when the region expands. Adding a state/country later reuses the same code and does not invalidate existing cells.
+- Resolves backlog #11 (grid migration) — supersedes the old "score a circle around one hazard" approach as the *standing* layer (`docs/RISK_MODEL.md` § 4.1).
+
+### Decision: user-facing output shape
+
+- Per-cell the model stores `risk_level`, `severity_score`, the cell polygon, `precipitation_mm`, `computed_at`.
+- The **user-facing answer returns `risk_level` + `severity_score` + cell polygon + `computed_at`**; the caller/UI decides whether to display the score. (Reversed an earlier call to withhold `severity_score`.)
+- **Out-of-grid ≠ LOW** (§ 1 non-negotiable): outside the region → explicit *outside-coverage*; inside but unscored → *no-data*; never `LOW`.
+
+### Decision: scoring window + cadence
+
+- A cell is classified at its **peak forecast hour within a window** (default **24 h from now**), using the § 3 hourly bands (`time_window_hours = 1`) — a preparedness/forecast view, not nowcasting.
+- **Cadence is Person 1's decision.** Scoring is a **pure function**; there is no timer/quota logic in P2's code. `cell_requests()` plans a run; the caller fetches whenever/however it wants and calls `score_grid()`.
+
+### Deferred idea (logged, NOT built): temporal window + fetch horizon
+
+- Today hour selection is **positional** — `_peak_sample()` just takes the first *N* samples and maxes, ignoring `HourlySample.time`. Open-Meteo's hourly array starts at **00:00**, so raw records include already-elapsed hours → positional selection can pick the wrong hours.
+- Future update: make the window **temporal** — filter to `[now, now + N h)` using each sample's timestamp (strict single mode; missing timestamps = no-data). Add a separate **`FETCH_HORIZON_HOURS`** (default ~72 h, ≥ window) so P1's fetch size is **decoupled** from the scoring window. Benefit: P1 can pull 3 days and still score `N=24`, or raise `N` later with no ingestion change.
+- Not needed now; revisit when P1 wires batch ingestion + scheduling. Whole-week pulls are unnecessary — ~3 days covers any window the team is likely to use.
+
+### Built (uncommitted)
+
+- `backend/app/risk/grid.py`: `GridSpec` (cell size), `Region` (bbox + `contains`), `Cell` (`cell_id`, `center`, `bounds`, `polygon()`), `cell_at`/`cell_id_at`/`parse_cell_id`, `iter_cells`, `cells_multipolygon`. Float-boundary guard (`_EPSILON`) for the `12.3 / 0.1 == 1022.999…` case. Pure geometry — mirrors `geometry.py` style.
+- `backend/app/risk/rain_grid.py`: `HourlySample`, `CellForecast`, `CellRisk`, `GridSnapshot`, `PointRisk`; `cell_requests(spec, region)`, `score_grid(spec, forecasts, window_hours=24)`, `risk_at_point(spec, region, snapshot, lat, lon)`. Reuses `calculate_precipitation_risk()` unchanged — **no new thresholds introduced**.
+- Tests: `backend/tests/test_risk/test_grid.py` (14) + `test_grid_scoring.py` (10). Offline, no network/DB.
+- `pytest`: **42 passed** (18 previous + 24 grid).
+
+### Docs
+
+- `docs/RISK_MODEL.md`: new **§ 4.1 Regional risk grid (precomputed snapshot → point lookup)** — region-as-config, stable global cell IDs, cell≠hazard-event (needs its own storage), peak-hour scoring, "run whenever called", output shape, out-of-grid ≠ LOW, ownership (P2 maths/scoring/lookup · P1 endpoint · P4 storage). Working assumption: 0.1° (~11 km) cells + 24 h window. Open-decision **row 7** (cell size + window) added; change-log row added.
+- `docs/API.md` / `OFFLINE.md` **not** updated yet — the grid is not served until P1 adds the endpoint, so the wire contract is unchanged for now.
+
+### Handoff / needs
+
+- **P1:** batch Open-Meteo fetch for `cell_requests()` coordinates (≤1000 comma-separated lat/lon), a run trigger at P1's chosen cadence, and a lookup endpoint (e.g. `GET /api/risk-zones?lat=&lon=` or new `GET /api/risk?lat=&lon=`) calling `risk_at_point()`.
+- **P4:** `grid_cells` storage + `get_grid_cell(cell_id)` / snapshot retrieval, freshness/`is_live`, and offline caching of the user's cell.
+
+### Git state
+
+- New files/grid work are **uncommitted/untracked**; `docs/RISK_MODEL.md` modified. No commit made (git rule: commit only on explicit ask).
+- Branch `feature/risk-engine` remains **3 ahead of `origin/feature/risk-engine`**, not pushed.
+
+### Next up
+
+- Hold on further grid work until the P1/P4 contract (endpoint + storage) is settled.
+- Remaining rain.py backlog: #1 (engine tests), #4/#6/#9 (pending P2 approval). Earthquake: select the GMPE.
+
+---
+
+## 2026-10-15 — Rain engine moves to grid geometry + engine tests (backlog #1)
+
+### Decision: rainfall geometry is the grid — no circles
+
+- P2: "completely move to the grid architecture for rain.py; circles suit earthquake better." Agreed — a score→radius circle is a *different, fabricated* geometry, not a legitimate fallback for a grid.
+- **Rainfall affected area = the grid cell (square)** containing the hazard location, via `grid.py`. One cell, one polygon.
+- **`compute_rainfall_polygon` deleted** from `geometry.py` (only caller was `rain.py:318`). `point_circle` + `concentric_rings` **kept** — earthquake's MMI rings use them; circles are now earthquake-only.
+- **No circle fallback:** if a cell can't be scored it is *no-data*, never an invented approximation.
+- Reliability rationale (vs per-event circles): uniform spatial coverage (no gaps), no fabricated extent, and one cell serves both the map and the point lookup so they can't disagree.
+- Keeps `/api/risk-zones` working unchanged — it already accepts `Polygon`, so the zone is simply the cell square now.
+
+### Spacing mechanism (answered P2's question)
+
+- There is **no automatic spacing** — it is `GridSpec.cell_size_deg` (`grid.py:37`), a per-run parameter. The old circle path had no grid at all.
+- `rain.py` now carries `DEFAULT_GRID_SPEC = GridSpec(0.1)` (**0.1° ≈ 11 km**, the Open-Meteo model resolution — the honest floor; finer would fabricate precision). Overridable per call via `process_precipitation_hazard(hazard, spec=…)`.
+- Final value is still **open decision 7**; not a constant.
+
+### Built (uncommitted)
+
+- `backend/app/risk/rain.py`: `process_precipitation_hazard(hazard, spec=None)`; affected area = `cell_at(spec or DEFAULT_GRID_SPEC, lat, lon).polygon()`. Imports `GridSpec`/`cell_at` from `grid.py`; dropped the `geometry` import.
+- `backend/app/risk/geometry.py`: removed `compute_rainfall_polygon`; docstring updated to state circles are event/attenuation primitives (earthquake), not rain.
+- `backend/tests/test_risk/test_rain.py`: **10 engine tests** — hourly LOW/HIGH bands, 24 h accumulation, thunderstorm floor, wind compounding, affected-area-is-cell, square-not-circle, custom spec, output metadata, out-of-range fails loudly. **Backlog #1 closed.**
+
+### Docs
+
+- `docs/RISK_MODEL.md`: **§ 4 rewritten** ("Hazard — rainfall geometry is the grid (circles forbidden)"): per-hazard cell, standing layer § 4.1, cell size = config, no circle fallback; earthquake para clarified (circles correct for attenuation). **Decision 2 closed** (union-of-buffers vs convex hull → N/A for rainfall); decision 3 trimmed to "event-local grid spacing". Change-log row added.
+
+### Verification
+
+- `pytest`: **52 passed** (18 → 42 grid → 52 with rain engine tests).
+
+### Handoff / needs
+
+- Unchanged from the regional-grid entry (P1 batch fetch + endpoint; P4 `grid_cells` storage). New note: rainfall `RiskResult.affected_area` is now a cell square, so P1/P4 store/render squares; no schema change required (still `Polygon`).
+
+### Git state
+
+- All of the above is **uncommitted/untracked**; no commit (git rule). Branch still **3 ahead of `origin/feature/risk-engine`**, not pushed.
+
+### Next up
+
+- Hold grid work until the P1/P4 contract lands.
+- Remaining backlog: #4/#6/#9 (pending P2 approval); **#2 accepted as a documented limitation** (the `window = 1 if <=1 else 24` collapse stays — the grid path always uses `window=1`, and the 24h bands are still required by the per-event/daily path; removing it would break `test_24h_accumulation_heavy_is_high` and contradict RISK_MODEL § 3.2); **#8 obsolete** (the unsourced radius heuristic lived in the deleted `compute_rainfall_polygon`). Earthquake: select the GMPE.
+
+---
+
+## 2026-10-15 — Rain.py cleanup: backlog #6 (fail loud) + #9 (docstring de-dup)
+
+### Decisions (P2)
+
+- **#9 — docstring de-duplicated.** The ~28-line block of IMD/WMO threshold tables at the top of `rain.py` duplicated `docs/RISK_MODEL.md` § 3 (intensity, accumulation, compounding) § 5 (bands/scale) → drift risk. Replaced with a short pointer to those sections. The **MANDATORY SAFETY RULE (LOW ≠ safe)** is kept inline — it is a project invariant, not a threshold.
+- **#6 — fail loud, minus `source`.** Removed the fabricated identity/coordinate fallbacks:
+  - missing `id`/`hazard_id` → `raise ValueError` (no `"open-meteo:unknown"`);
+  - missing coordinates → `raise ValueError` (no `(0.0, 0.0)` zone in the Gulf of Guinea); out-of-range still raises via `cell_at`.
+  - **`source` fallback intentionally KEPT** (`data.get("source") or "open_meteo"`): P2 confirmed Open-Meteo is SafeGrid's **sole** ingestion source, so defaulting it is not fabrication. `hazard_type="rainfall"` likewise kept (this *is* the rainfall engine).
+- **#4 — NOT done, deferred by P2.** `main()` CLI stays in `rain.py`; `sys`/`Optional` imports unchanged.
+
+### Built (uncommitted)
+
+- `backend/app/risk/rain.py`: docstring trimmed to a summary+pointer; `hazard_id` and coordinate extraction now raise on missing input.
+- `backend/tests/test_risk/test_rain.py`: **+5 tests** — missing id raises, missing coordinates raises, GeoJSON `location.coordinates` used when lat/lon absent, `source` defaults to `open_meteo`, `source` preserved when provided.
+
+### Verification
+
+- `pytest`: **57 passed** (52 → 57).
+
+### Git state
+
+- All of the above is **uncommitted/untracked**; no commit (git rule). Branch still **3 ahead of `origin/feature/risk-engine`**, not pushed.
+
+### Next up
+
+- **#4** remains (move CLI to `backend/scripts/`) — P2 to decide. Then earthquake: select the GMPE.
+
+
 
