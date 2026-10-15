@@ -10,17 +10,17 @@
 
 ## Current State (quick reference)
 
-- **Last updated:** 2026-10-15
-- **Branch:** `feature/risk-engine` — **3 commits ahead of `origin/feature/risk-engine`** (not pushed): `d029915` (rain cleanup), `55dd2fc` (merge of `origin/feature/data-ingestion`), `3dc2dbe` (session log).
+- **Last updated:** 2026-10-15 (EOD — committed & pushed in `06ccb1a`)
+- **Branch:** `feature/risk-engine` — **pushed and in sync** with `origin/feature/risk-engine` (0 ahead / 0 behind). Head: `06ccb1a` "move rainfall engine to a general grid + regional scoring". *(The push also published the earlier unpushed history.)*
 - **Subsystem:** `backend/app/risk/` (rainfall engine implemented; geometry toolkit (circles = earthquake-only); grid toolkit + regional scoring added; rain affected-area now grid-based; earthquake spec'd, not coded)
-- **Working tree:** **uncommitted grid work** — untracked `backend/app/risk/grid.py`, `backend/app/risk/rain_grid.py`, `backend/tests/test_risk/test_grid.py`, `backend/tests/test_risk/test_grid_scoring.py`, `backend/tests/test_risk/test_rain.py`; modified `backend/app/risk/rain.py`, `backend/app/risk/geometry.py`, `docs/RISK_MODEL.md`. Also untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py`.
+- **Working tree:** **clean** — the grid work is now **committed & pushed** (`06ccb1a`): `backend/app/risk/{grid.py,rain_grid.py,rain.py,geometry.py,session_log.md}`, `docs/RISK_MODEL.md`, `backend/tests/test_risk/{test_grid.py,test_grid_scoring.py,test_rain.py}`. Only untracked left: `.opencode/`, `opencode.json`, `test.py`, `test1.py` (left alone on purpose).
   - Standing permission (2026-10-11): Person 2 grants commit/push of `session_log.md` at will — **this file only**.
 - **Blocker 2 CLOSED (Person 1, `dc525cb`):** `/api/risk-zones` implemented (`backend/app/api/risk_zones.py`) + registered in `main.py`; `list_hazards_with_risk()` → GeoJSON `FeatureCollection`; 3 API tests (`tests/test_api/test_risk_zones_api.py`). `is_live` hardcoded `False` (honest default until P4 freshness lands).
 - **`docs/RISK_MODEL.md` is now Person 1's v2 framework** (Risk = Hazard × Exposure × Vulnerability, phases P0–P4) with Person 2's earthquake spec retained as **§ 12**.
 - **Rain engine cleanup (Person 2, `d029915`, 2026-10-15):** dropped `badge`/`summary`/`factors`/`disclaimer` prose, stale `duration` fallback, duplicate `id` key; standardised `Hazard.probability` docs to 0–100%. `pytest`: **18 passed**.
-- **Regional grid (Person 2, 2026-10-15, uncommitted):** `grid.py` + `rain_grid.py` + 24 tests; `pytest`: **42 passed**. Region-agnostic config grid → precomputed snapshot → point lookup; out-of-grid ≠ LOW; user-facing output = level + cell polygon + `computed_at`. Spec in `docs/RISK_MODEL.md` § 4.1.
-- **Rain → grid geometry (Person 2, 2026-10-15, uncommitted):** `rain.py` affected area is now the **grid cell** (square) containing the hazard location, not a severity-fabricated circle; `compute_rainfall_polygon` **deleted** (circles reserved for earthquake). +10 `rain.py` engine tests (backlog **#1 done**). `pytest`: **52 passed**.
-- **Rain.py cleanup #6 + #9 (Person 2, 2026-10-15, uncommitted):** **#9** docstring threshold tables replaced with a pointer to `RISK_MODEL.md` § 3/§ 5 (safety rule kept inline); **#6** fail loud on missing hazard `id`/coordinates (no `"open-meteo:unknown"`, no `(0, 0)`), `source` fallback **kept** (Open-Meteo is SafeGrid's sole source). +5 tests. `pytest`: **57 passed**. **#4 deferred** by P2 (CLI stays in `rain.py`).
+- **Regional grid (Person 2, 2026-10-15, in `06ccb1a`):** `grid.py` + `rain_grid.py` + 24 tests; `pytest`: **42 passed**. Region-agnostic config grid → precomputed snapshot → point lookup; out-of-grid ≠ LOW; user-facing output = level + cell polygon + `computed_at`. Spec in `docs/RISK_MODEL.md` § 4.1.
+- **Rain → grid geometry (Person 2, 2026-10-15, in `06ccb1a`):** `rain.py` affected area is now the **grid cell** (square) containing the hazard location, not a severity-fabricated circle; `compute_rainfall_polygon` **deleted** (circles reserved for earthquake). +10 `rain.py` engine tests (backlog **#1 done**). `pytest`: **52 passed**.
+- **Rain.py cleanup #6 + #9 (Person 2, 2026-10-15, in `06ccb1a`):** **#9** docstring threshold tables replaced with a pointer to `RISK_MODEL.md` § 3/§ 5 (safety rule kept inline); **#6** fail loud on missing hazard `id`/coordinates (no `"open-meteo:unknown"`, no `(0, 0)`), `source` fallback **kept** (Open-Meteo is SafeGrid's sole source). +5 tests. `pytest`: **57 passed**. **#4 deferred** by P2 (CLI stays in `rain.py`).
 - **Branch vs `main`:** `origin/main` merged into `feature/risk-engine` earlier (`11ffb82`). Local `main` = `7362ac7` = `origin/main`.
 - **Next up:** 🟠 (a) no further grid work until P1/P4 settle the endpoint + storage contract; (b) rain.py backlog remaining: **#4** (move `main()` CLI to `backend/scripts/`) pending P2; **#6/#9 done** (2026-10-15); **#2 accepted as a documented limitation** (grid path bypasses it; 24h bands still needed by the per-event/daily path); **#8 obsolete** (`compute_rainfall_polygon` deleted). Earthquake: RISK_MODEL § 12 drafted; **pick the GMPE** then build `earthquake.py`.
 - **Reminder:** send the short WhatsApp summary to the team (architecture proposal drafted 2026-10-12, pending their input).
@@ -477,6 +477,39 @@ Full 10-item review of `backend/app/risk/`: 2 blockers, 3 must-fix, 5 cleanup.
 ### Next up
 
 - **#4** remains (move CLI to `backend/scripts/`) — P2 to decide. Then earthquake: select the GMPE.
+
+---
+
+## 2026-10-15 — End-of-day wrap-up (consolidated)
+
+> Consolidated from the day's sessions and git. Detailed per-task sections are above.
+
+### What the day produced
+
+- **Rainfall engine moved fully to a regional grid.** `grid.py` (pure geometry: `GridSpec`, `Region`, `Cell`, global-anchored stable `cell_id`s, `iter_cells`, `cells_multipolygon`) and `rain_grid.py` (per-cell peak-hour scoring, `GridSnapshot`, `risk_at_point` point lookup) added. Region-agnostic: a grid is *cell size + bbox*, no region hardcoded.
+- **Rain `affected_area` is now the containing grid cell (square)** — `compute_rainfall_polygon` deleted; circles are earthquake-only (`geometry.py`).
+- **Cleanup #6 + #9 done** (committed): fail loud on missing hazard `id`/coordinates; docstring threshold tables replaced with a pointer to `docs/RISK_MODEL.md` § 3/§ 5. `source` fallback kept (Open-Meteo is the sole source). **#4 deferred**.
+- **Docs:** `docs/RISK_MODEL.md` — § 4 (grid geometry, circles forbidden), § 4.1 (regional grid → point lookup), decision 2 closed, decision 7 added.
+- **Tests:** `test_grid.py` + `test_grid_scoring.py` + `test_rain.py`; suite **57 passing** (from 18). Backlog **#1** closed. **#8 obsolete**, **#2 accepted as a documented limitation**.
+
+### Key decisions
+
+- General grid, no hardcoded region; user-facing answer = `risk_level` + `severity_score` + cell polygon + `computed_at`; scoring is a pure function (cadence is P1's call); **out-of-grid ≠ LOW** (outside → *outside-coverage*, inside-but-unscored → *no-data*).
+- Grid maths/scoring/lookup = P2; batch ingestion + endpoint = P1; storage/freshness = P4; map/UI = P3.
+
+### Git state (EOD)
+
+- **Committed & pushed:** `06ccb1a` "feat(risk): move rainfall engine to a general grid + regional scoring" — 9 files, `+1087/−99`. `feature/risk-engine` now **in sync** with `origin/feature/risk-engine` (0/0). *(This push also published the earlier unpushed history.)*
+- Working tree **clean**; untracked only `.opencode/`, `opencode.json`, `test.py`, `test1.py` (intentionally left).
+
+### Blockers / next steps
+
+- **P1:** batch `fetch_precipitation_many(coords)`, a run trigger, and a point-lookup endpoint calling `risk_at_point()`.
+- **P4:** `grid_cells` storage + retrieval + freshness/`is_live` + offline cache of the user's cell.
+- **P2 next:** backlog **#4** (move CLI to `backend/scripts/`); then the **earthquake engine** — pick the GMPE, then `earthquake.py` + `_classify_earthquake` (spec in `RISK_MODEL.md` § 12).
+- Reminder: send the short WhatsApp architecture summary to the team.
+
+_Session digest (`session_digest.py --date 2026-10-15`) returned only this session's own transcript; consolidated from git + conversation._
 
 
 
