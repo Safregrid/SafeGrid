@@ -185,4 +185,5 @@ Responses include `is_live: false` when data is served from cached or last-known
 | 2026-10-06 | Initial draft | scaffold |
 | 2026-10-07 | Aligned Hazard model: `magnitude`, `probability`, `specific_data` | Person 1 |
 | 2026-10-09 | Added `GET /api/data` endpoints, 3-tier Data/Hazard/RiskResult model | Person 1 |
+| 2026-10-13 | Implemented `GET /api/risk-zones` (persisted risk results as GeoJSON) | Person 1 |
 

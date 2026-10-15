@@ -1,14 +1,68 @@
 /**
  * SafeGrid frontend entry point.
- *
  * Person 3 owns this file.
- *
- * Initial goal: given valid GeoJSON from the backend, render risk zones on the map.
- * Do not build UI polish before the data pipeline works.
  */
 
-// TODO (Person 3): initialize the MapLibre map — see src/map/index.js
-// TODO (Person 3): fetch risk zones from the API — see src/api/client.js
-// TODO (Person 4): register service worker for offline support — see src/service-worker.js
+import { initMap, renderHazardMarkers, addRiskZoneLayer, updateRiskZones } from './map/index.js';
+import { fetchHazards, fetchRiskZones } from './api/client.js';
 
 console.log("SafeGrid frontend initializing...");
+
+// TODO (Person 4): register service worker for offline support — see src/service-worker.js
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const map = initMap('map');
+
+  map.on('load', async () => {
+    try {
+      addRiskZoneLayer(map, null);
+
+      const [hazardPayload, riskZonesGeoJSON] = await Promise.all([
+        fetchHazards().catch(err => {
+          console.warn('Hazards fetch failed:', err);
+          return null;
+        }),
+        fetchRiskZones().catch(err => {
+          console.warn('Risk zones fetch failed (endpoint stub or offline):', err);
+          return null;
+        })
+      ]);
+
+      // Update telemetry connection badge (live vs cached vs offline)
+      const statusPill = document.getElementById('connection-status');
+      const statusText = document.getElementById('status-text');
+      if (hazardPayload) {
+        if (statusPill && statusText) {
+          if (hazardPayload.is_live) {
+            statusPill.className = 'system-status live';
+            statusText.textContent = 'LIVE DATA';
+          } else {
+            statusPill.className = 'system-status cached';
+            statusText.textContent = 'CACHED DATA';
+          }
+        }
+      } else if (statusPill && statusText) {
+        statusPill.className = 'system-status offline';
+        statusText.textContent = 'API UNAVAILABLE';
+      }
+
+      const hazards = hazardPayload?.hazards ?? [];
+      console.log(`Loaded ${hazards.length} hazard records.`);
+
+      renderHazardMarkers(map, hazards, (selectedHazard) => {
+        if (typeof selectedHazard?.latitude === 'number' && typeof selectedHazard?.longitude === 'number') {
+          map.flyTo({ center: [selectedHazard.longitude, selectedHazard.latitude], zoom: 8 });
+        }
+      });
+
+      // Pass actual GeoJSON if available, otherwise pass empty collection (no fabrication)
+      if (riskZonesGeoJSON && riskZonesGeoJSON.features) {
+        updateRiskZones(map, riskZonesGeoJSON);
+      } else {
+        updateRiskZones(map, { type: 'FeatureCollection', features: [] });
+      }
+    } catch (err) {
+      console.error('Failed to load map data pipeline:', err);
+    }
+  });
+});

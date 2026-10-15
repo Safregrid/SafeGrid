@@ -241,5 +241,6 @@ See `docs/OFFLINE.md`.
 | 2026-10-07 | Shared Hazard model alignment | `raw_magnitude` / `raw_values` | `magnitude`, `probability`, `specific_data` | Standardized model for Person 1 & Person 2 |
 | 2026-10-08 | Field cleanup | `duration` field included | `duration` field removed | Ingestion providers do not output reliable duration window |
 | 2026-10-09 | 3-Tier Domain Architecture | Direct Ingestion → Hazard | Ingestion → DataRecord → Hazard Identification → RiskResult | Avoid conflating routine weather forecasts with active hazards |
+| 2026-10-13 | Risk zone API wired | `/api/risk-zones` stub | Endpoint serves persisted `RiskResult` rows as GeoJSON; engine runs at ingestion via `pipeline.py` | Complete the risk-engine -> API -> map vertical slice |
 
 When a major architectural decision changes, add a row here and update relevant sections.
