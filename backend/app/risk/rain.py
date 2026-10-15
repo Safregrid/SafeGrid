@@ -10,7 +10,9 @@ ingestion or Person 4's database layer) and calculates:
 1. Deterministic risk level (LOW, MODERATE, HIGH)
 2. Continuous severity score (0.0 to 10.0)
 3. GeoJSON Polygon affected-area geometry for MapLibre rendering (Person 3)
-4. Contextual summary, compounding factors, and threshold explanations
+
+Presentation (badges, summaries, disclaimers, human-readable factor prose) is
+NOT produced here — that belongs to the API/frontend layer.
 
 Scientific Threshold Justifications:
 - Hourly precipitation thresholds follow the India Meteorological Department (IMD)
@@ -76,10 +78,6 @@ class PrecipitationRiskResult:
     time_window: str
     risk_level: str          # "HIGH" | "MODERATE" | "LOW"
     severity_score: float    # 0.0 to 10.0
-    badge: str               # 🔴 | 🟡 | 🟢
-    summary: str
-    factors: list[str]
-    disclaimer: str
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -123,14 +121,13 @@ WMO_DESCRIPTIONS: dict[int, str] = {
 
 def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskResult:
     """
-    Computes deterministic risk level, severity score, and contributing factors.
+    Computes deterministic risk level and severity score.
 
     Returns:
         PrecipitationRiskResult with risk_level in {"HIGH", "MODERATE", "LOW"}
     """
     precip = max(0.0, data.precipitation_mm)
     window = 1 if data.time_window_hours <= 1 else 24
-    factors: list[str] = []
 
     # 1. Base score derived from precipitation intensity
     if window == 1:
@@ -139,106 +136,59 @@ def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskR
         if precip < 10.0:
             # Light spell (< 1 cm/h)
             base_score = (precip / 10.0) * 3.9
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is a light spell (< 1 cm/h).")
         elif precip < 20.0:
             # Moderate spell (1 - 2 cm/h)
             base_score = 4.0 + ((precip - 10.0) / 10.0) * 2.9
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is a moderate spell (1 - 2 cm/h).")
         elif precip < 30.0:
             # Intense spell (2 - 3 cm/h)
             base_score = 7.0 + ((precip - 20.0) / 10.0) * 1.4
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is an intense spell (2 - 3 cm/h).")
         elif precip < 50.0:
             # Very intense spell (3 - 5 cm/h)
             base_score = 8.5 + ((precip - 30.0) / 20.0) * 0.9
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is a very intense spell (3 - 5 cm/h).")
         elif precip < 100.0:
             # Extremely intense spell (5 - 10 cm/h)
             base_score = 9.5 + ((precip - 50.0) / 50.0) * 0.5
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is an extremely intense spell (5 - 10 cm/h).")
         else:
             # Cloudburst (> 10 cm/h)
             base_score = 10.0
-            factors.append(
-                f"Hourly precipitation of {precip:.1f} mm/h exceeds the IMD cloudburst "
-                f"threshold (10 cm/h) — extreme flash-flood risk."
-            )
     else:
         # 24-Hour accumulation (mm/24h)
         if precip < 15.5:
             base_score = (precip / 15.5) * 3.5
-            factors.append(f"24h accumulated rainfall ({precip:.1f} mm) is light (< 15.5 mm).")
         elif precip < 64.5:
             base_score = 4.0 + ((precip - 15.5) / (64.5 - 15.5)) * 2.5
-            factors.append(f"24h accumulated rainfall ({precip:.1f} mm) is moderate (15.5 - 64.5 mm).")
         elif precip < 115.5:
             base_score = 7.0 + ((precip - 64.5) / (115.5 - 64.5)) * 1.5
-            factors.append(f"24h accumulated rainfall ({precip:.1f} mm) is heavy (64.5 - 115.5 mm).")
         else:
             base_score = 8.5 + min(1.5, ((precip - 115.5) / 50.0) * 1.5)
-            factors.append(f"24h accumulated rainfall ({precip:.1f} mm) is very heavy (> 115.5 mm).")
 
     score = base_score
 
-    # 2. Compounding Factor: Wind speed & gusts
-    # High winds combine with rain to cause downed power lines, structural risk, and drainage blockages
+    # 2. Compounding factor: wind speed & gusts
+    # High winds combine with rain to cause downed power lines, structural risk,
+    # and drainage blockages.
     if data.wind_gusts_kmh >= 65.0 or data.wind_speed_kmh >= 50.0:
-        wind_modifier = 1.5
-        score += wind_modifier
-        factors.append(
-            f"Compounding wind hazard: speed {data.wind_speed_kmh:.1f} km/h, gusts {data.wind_gusts_kmh:.1f} km/h "
-            f"(+{wind_modifier:.1f} severity due to power line / grid disruption hazard)."
-        )
+        score += 1.5
     elif data.wind_gusts_kmh >= 45.0 or data.wind_speed_kmh >= 35.0:
-        wind_modifier = 0.8
-        score += wind_modifier
-        factors.append(
-            f"Moderate wind gusts ({data.wind_gusts_kmh:.1f} km/h) compound localized storm risk (+{wind_modifier:.1f})."
-        )
+        score += 0.8
 
-    # 3. Compounding Factor: WMO Weather Code (Thunderstorms / Violent Showers)
+    # 3. Compounding factor: WMO weather code (thunderstorms / violent showers)
     if data.weather_code is not None:
-        code_desc = WMO_DESCRIPTIONS.get(data.weather_code, f"Code {data.weather_code}")
-        if data.weather_code in (95, 96, 97, 99):  # Thunderstorms
-            score = max(score + 1.0, 7.0)  # Thunderstorms elevate risk floor to HIGH
-            factors.append(f"Severe weather code: {code_desc} (WMO {data.weather_code}) imposes HIGH risk floor.")
-        elif data.weather_code == 82:  # Violent rain showers
+        if data.weather_code in (95, 96, 97, 99):  # thunderstorms
+            score = max(score + 1.0, 7.0)  # thunderstorms elevate the HIGH floor
+        elif data.weather_code == 82:  # violent rain showers
             score = max(score, 7.0)
-            factors.append("Violent rain showers (WMO 82) imposes HIGH risk floor.")
-        else:
-            factors.append(f"Weather condition: {code_desc} (WMO {data.weather_code}).")
-
-    # 4. Precipitation probability factor (if forecast uncertainty is low/high)
-    if data.precipitation_probability < 40.0 and precip > 0:
-        factors.append(f"Precipitation probability is {data.precipitation_probability:.0f}% (forecast uncertainty noted).")
 
     # Clamp severity score to [0.0, 10.0]
     final_score = round(min(10.0, max(0.0, score)), 2)
 
-    # 5. Determine SafeGrid Risk Level
+    # 4. Determine SafeGrid risk level (thresholds: docs/RISK_MODEL.md)
     if final_score >= 7.0:
         risk_level = "HIGH"
-        badge = "🔴 High Risk"
-        summary = (
-            "Severe precipitation / storm conditions. High probability of localized flooding, "
-            "waterlogging, and power grid / infrastructural disruptions."
-        )
     elif final_score >= 4.0:
         risk_level = "MODERATE"
-        badge = "🟡 Moderate / Potential Risk"
-        summary = (
-            "Moderate precipitation observed. Potential for road water accumulation, "
-            "minor drainage overflows, and localized grid stress."
-        )
     else:
         risk_level = "LOW"
-        badge = "🟢 Low Risk"
-        summary = (
-            "Light or negligible precipitation. Standard environmental conditions. "
-            "Minimal infrastructural hazard expected."
-        )
-
-    disclaimer = "Green / Low Risk indicates low hazard relative to threshold; it does NOT imply absolute safety."
 
     return PrecipitationRiskResult(
         location={"latitude": data.latitude, "longitude": data.longitude},
@@ -247,10 +197,6 @@ def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskR
         time_window=f"{window} hour(s)",
         risk_level=risk_level,
         severity_score=final_score,
-        badge=badge,
-        summary=summary,
-        factors=factors,
-        disclaimer=disclaimer,
     )
 
 
@@ -317,7 +263,7 @@ def process_precipitation_hazard(hazard: dict[str, Any] | Any) -> dict[str, Any]
     precip_mm = max(0.0, float(precip_mm if precip_mm is not None else 0.0))
 
     # 6. Time window (hours)
-    window = specific.get("time_window_hours") or data.get("time_window_hours") or data.get("duration") or 1
+    window = specific.get("time_window_hours") or data.get("time_window_hours") or 1
     if isinstance(window, str):
         digits = "".join(c for c in window if c.isdigit())
         window_int = int(digits) if digits else 1
@@ -374,12 +320,11 @@ def process_precipitation_hazard(hazard: dict[str, Any] | Any) -> dict[str, Any]
     calc_now = datetime.now(timezone.utc).isoformat()
     notes = (
         f"Precipitation: {result.precipitation_mm:.1f} mm ({result.time_window}). "
-        f"Score: {result.severity_score:.2f}/10. {result.summary}"
+        f"Score: {result.severity_score:.2f}/10."
     )
 
     # 10. Formulate final output dictionary for Person 3 (Frontend) & Person 4 (Database)
     return {
-        "id": hazard_id,
         "hazard_id": hazard_id,
         "hazard_type": "rainfall",
         "source": source,
@@ -388,12 +333,8 @@ def process_precipitation_hazard(hazard: dict[str, Any] | Any) -> dict[str, Any]
         "longitude": longitude,
         "risk_level": result.risk_level,
         "severity_score": result.severity_score,
-        "badge": result.badge,
         "calculated_at": calc_now,
         "affected_area": affected_area,
-        "summary": result.summary,
-        "factors": result.factors,
-        "disclaimer": result.disclaimer,
         "notes": notes,
     }
 
@@ -434,7 +375,6 @@ def main() -> None:
             'longitude': 77.5946,
             'magnitude': None,
             'probability': 0.0,
-            'duration': None,
             'specific_data': {'precipitation_mm': 0.0},
             'created_at': '2026-10-08T05:21:21.446033+00:00',
         }
