@@ -10,6 +10,10 @@ import {
   markHazardsCached,
   HAZARDS_PATH,
   STALE_AFTER_MS,
+  isRiskPointRequest,
+  markPointRiskCached,
+  RISK_POINT_PATH,
+  GRID_POINT_STALE_AFTER_MS,
 } from "../src/offline/policy.js";
 
 test("targets the risk-zones endpoint", () => {
@@ -148,4 +152,43 @@ test("markHazardsCached defaults an absent hazards array to empty", () => {
 test("markHazardsCached passes through non-object values untouched", () => {
   assert.equal(markHazardsCached(null), null);
   assert.deepEqual(markHazardsCached([1, 2]), [1, 2]);
+});
+
+test("targets the regional-grid point endpoint", () => {
+  assert.equal(RISK_POINT_PATH, "/api/risk");
+});
+
+test("recognises a point lookup with lat/lon query", () => {
+  assert.equal(isRiskPointRequest("/api/risk?lat=12.9&lon=77.5"), true);
+  assert.equal(isRiskPointRequest("https://safegrid.example/api/risk?lat=1&lon=2"), true);
+});
+
+test("does not confuse the point lookup with /api/risk-zones", () => {
+  assert.equal(isRiskPointRequest("/api/risk-zones"), false);
+  assert.equal(isRiskZonesRequest("/api/risk?lat=1&lon=2"), false);
+});
+
+test("isRiskPointRequest rejects non-GET and malformed input", () => {
+  assert.equal(isRiskPointRequest("/api/risk", "POST"), false);
+  assert.equal(isRiskPointRequest("http://[::bad"), false);
+  assert.equal(isRiskPointRequest("/api/hazards"), false);
+});
+
+test("markPointRiskCached stamps is_live false and cached_at without mutating", () => {
+  const input = { cell_id: "0.1:12.9:77.5", risk_level: "HIGH", is_live: true };
+  const marked = markPointRiskCached(input, "2026-01-01T00:00:00.000Z");
+  assert.equal(marked.is_live, false);
+  assert.equal(marked.cached_at, "2026-01-01T00:00:00.000Z");
+  assert.equal(marked.risk_level, "HIGH");
+  assert.equal(input.is_live, true);
+  assert.equal("cached_at" in input, false);
+});
+
+test("markPointRiskCached passes through non-object values untouched", () => {
+  assert.equal(markPointRiskCached(null), null);
+  assert.deepEqual(markPointRiskCached([1, 2]), [1, 2]);
+});
+
+test("documents a 3 hour grid staleness default", () => {
+  assert.equal(GRID_POINT_STALE_AFTER_MS, 3 * 60 * 60 * 1000);
 });

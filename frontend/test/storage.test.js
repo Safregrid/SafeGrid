@@ -13,6 +13,11 @@ import {
   getHazardsAge,
   clearHazards,
   HAZARDS_STORE_KEY,
+  saveGridCellRisk,
+  getLastKnownGridCellRisk,
+  getGridCellRiskAge,
+  clearGridCellRisk,
+  GRID_CELL_STORE_KEY,
 } from "../src/offline/storage.js";
 
 const originalIndexedDB = globalThis.indexedDB;
@@ -56,6 +61,17 @@ function sampleHazards() {
   };
 }
 
+function sampleGridCell() {
+  return {
+    cell_id: "0.1:12.9:77.5",
+    risk_level: "HIGH",
+    severity_score: 8.1,
+    affected_area: { type: "Polygon", coordinates: [] },
+    computed_at: "2026-05-05T05:05:05.000Z",
+    is_live: true,
+  };
+}
+
 function withoutIndexedDB() {
   globalThis.indexedDB = undefined;
 }
@@ -68,6 +84,7 @@ beforeEach(async () => {
   restoreIndexedDB();
   await clearRiskZones();
   await clearHazards();
+  await clearGridCellRisk();
 });
 
 test("exports a stable store key", () => {
@@ -253,4 +270,61 @@ test("hazards helpers degrade without IndexedDB", async () => {
   assert.deepEqual(await getHazardsAge(), { timestamp: null, isLive: false });
   await assert.doesNotReject(() => clearHazards());
   await assert.rejects(() => saveHazards(sampleHazards()), Error);
+});
+
+test("targets the grid-cell store key", () => {
+  assert.equal(GRID_CELL_STORE_KEY, "grid-cell");
+});
+
+test("grid-cell lookup returns null before anything is saved", async () => {
+  assert.equal(await getLastKnownGridCellRisk(), null);
+  assert.deepEqual(await getGridCellRiskAge(), { timestamp: null, isLive: false });
+});
+
+test("grid-cell lookup round-trips and preserves shape", async () => {
+  const cell = sampleGridCell();
+  await saveGridCellRisk(cell);
+  assert.deepEqual(await getLastKnownGridCellRisk(), cell);
+});
+
+test("grid-cell lookup does not mutate its input", async () => {
+  const cell = sampleGridCell();
+  const before = JSON.stringify(cell);
+  await saveGridCellRisk(cell, new Date(), true);
+  assert.equal(JSON.stringify(cell), before);
+  assert.equal("cached_at" in cell, false);
+});
+
+test("grid-cell lookup preserves timestamp and live flag", async () => {
+  const savedAt = new Date("2026-06-06T06:06:06.000Z");
+  await saveGridCellRisk(sampleGridCell(), savedAt, true);
+  const age = await getGridCellRiskAge();
+  assert.equal(age.timestamp.toISOString(), savedAt.toISOString());
+  assert.equal(age.isLive, true);
+});
+
+test("grid-cell lookup is stored independently from hazards and zones", async () => {
+  await saveGridCellRisk(sampleGridCell());
+  assert.equal(await getLastKnownHazards(), null);
+  assert.equal(await getLastKnownRiskZones(), null);
+});
+
+test("saveGridCellRisk rejects non-object payloads", async () => {
+  await assert.rejects(() => saveGridCellRisk(null), TypeError);
+  await assert.rejects(() => saveGridCellRisk([1, 2]), TypeError);
+});
+
+test("clearGridCellRisk removes the snapshot", async () => {
+  await saveGridCellRisk(sampleGridCell());
+  await clearGridCellRisk();
+  assert.equal(await getLastKnownGridCellRisk(), null);
+  assert.deepEqual(await getGridCellRiskAge(), { timestamp: null, isLive: false });
+});
+
+test("grid-cell helpers degrade without IndexedDB", async () => {
+  withoutIndexedDB();
+  assert.equal(await getLastKnownGridCellRisk(), null);
+  assert.deepEqual(await getGridCellRiskAge(), { timestamp: null, isLive: false });
+  await assert.doesNotReject(() => clearGridCellRisk());
+  await assert.rejects(() => saveGridCellRisk(sampleGridCell()), Error);
 });

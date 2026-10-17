@@ -11,14 +11,21 @@ import unittest
 from datetime import datetime, timezone
 
 from app.db.repository import (
+    GRID_CELL_TTL_SECONDS,
+    clear_grid_cells,
     get_data_record,
+    get_grid_cell,
     get_hazard,
     get_risk_result,
     init_db,
+    is_grid_cell_live,
     list_data_records,
+    list_grid_cells,
     list_hazards,
     list_hazards_with_risk,
     save_data_record,
+    save_grid_cell,
+    save_grid_snapshot,
     save_hazard,
     save_risk_result,
 )
@@ -193,9 +200,33 @@ class TestDatabaseRepository(unittest.TestCase):
             "id", "hazard_type", "source", "timestamp",
             "latitude", "longitude", "magnitude", "probability",
             "specific_data", "risk_level",
-            "severity_score", "affected_area", "notes"
+            "severity_score", "affected_area", "notes", "calculated_at"
         }
         self.assertTrue(required_keys.issubset(set(joined[0].keys())))
+
+    def test_join_exposes_calculated_at(self):
+        """P4: promise — the map feed includes when a hazard was rated."""
+        save_hazard(self._hazard("eq-calc"), database=self.test_db)
+        rated_at = "2026-10-07T13:45:00Z"
+        save_risk_result(
+            {
+                "hazard_id": "eq-calc",
+                "risk_level": "MODERATE",
+                "severity_score": 5.5,
+                "affected_area": {},
+                "calculated_at": rated_at,
+            },
+            database=self.test_db,
+        )
+
+        row = list_hazards_with_risk(database=self.test_db)[0]
+        self.assertEqual(row["calculated_at"], rated_at)
+
+    def test_unrated_hazard_has_null_calculated_at(self):
+        """P4: promise — an unrated hazard exposes calculated_at as None, not a crash."""
+        save_hazard(self._hazard("eq-nocalc"), database=self.test_db)
+        row = list_hazards_with_risk(database=self.test_db)[0]
+        self.assertIsNone(row["calculated_at"])
 
     def test_resaving_hazard_keeps_risk_result(self):
         hazard = {
@@ -310,6 +341,92 @@ class TestDatabaseRepository(unittest.TestCase):
         save_hazard(self._hazard("eq-30"), database=self.test_db)
         init_db(database=self.test_db)
         self.assertIsNotNone(get_hazard("eq-30", database=self.test_db))
+
+    # ------------------------------------------------------------------
+    # Regional risk grid (P4 storage). A cell is NOT a hazard event.
+    # ------------------------------------------------------------------
+    def _cell(self, cell_id="0.1:12.9:77.5", level="HIGH", severity=8.0):
+        return {
+            "cell_id": cell_id,
+            "latitude": 12.9,
+            "longitude": 77.5,
+            "cell_size": 0.1,
+            "risk_level": level,
+            "severity_score": severity,
+            "precipitation_mm": 42.0,
+            "affected_area": {"type": "Polygon", "coordinates": []},
+        }
+
+    def test_save_and_get_grid_cell(self):
+        saved = save_grid_cell(self._cell(), database=self.test_db)
+        self.assertEqual(saved["cell_id"], "0.1:12.9:77.5")
+        self.assertEqual(saved["risk_level"], "HIGH")
+        self.assertAlmostEqual(saved["severity_score"], 8.0)
+        self.assertEqual(saved["affected_area"]["type"], "Polygon")
+
+        fetched = get_grid_cell("0.1:12.9:77.5", database=self.test_db)
+        self.assertIsNotNone(fetched)
+        self.assertAlmostEqual(fetched["precipitation_mm"], 42.0)
+
+    def test_grid_cell_missing_field_raises(self):
+        broken = self._cell()
+        del broken["cell_id"]
+        with self.assertRaises(ValueError):
+            save_grid_cell(broken, database=self.test_db)
+
+    def test_resaving_grid_cell_updates_in_place(self):
+        save_grid_cell(self._cell(level="LOW", severity=2.0), database=self.test_db)
+        save_grid_cell(self._cell(level="HIGH", severity=9.0), database=self.test_db)
+        cells = list_grid_cells(database=self.test_db)
+        self.assertEqual(len(rows := list_grid_cells(database=self.test_db)), 1)
+        self.assertEqual(cells[0]["risk_level"], "HIGH")
+
+    def test_save_grid_snapshot_stamps_one_generated_at(self):
+        cells = [
+            self._cell(cell_id="0.1:1:1"),
+            self._cell(cell_id="0.1:1:2", level="LOW", severity=2.0),
+        ]
+        written = save_grid_snapshot(
+            cells, generated_at="2026-10-15T06:00:00Z", database=self.test_db
+        )
+        self.assertEqual(written, 2)
+        stored = list_grid_cells(database=self.test_db)
+        self.assertEqual(len(stored), 2)
+        self.assertEqual({row["generated_at"] for row in stored}, {"2026-10-15T06:00:00Z"})
+
+    def test_list_grid_cells_orders_by_severity(self):
+        cells = [
+            ("low", "LOW", 1.0),
+            ("high", "HIGH", 9.0),
+            ("mod", "MODERATE", 5.0),
+        ]
+        for name, level, severity in cells:
+            save_grid_cell(
+                self._cell(cell_id=f"cell-{name}", level=level, severity=severity),
+                database=self.test_db,
+            )
+        ordered = [c["cell_id"] for c in list_grid_cells(database=self.test_db)]
+        self.assertEqual(ordered, ["cell-high", "cell-mod", "cell-low"])
+
+    def test_clear_grid_cells(self):
+        save_grid_cell(self._cell(), database=self.test_db)
+        clear_grid_cells(database=self.test_db)
+        self.assertEqual(list_grid_cells(database=self.test_db), [])
+
+    def test_is_grid_cell_live_respects_ttl(self):
+        now = datetime(2026, 10, 17, 12, 0, 0, tzinfo=timezone.utc)
+        fresh = {"generated_at": "2026-10-17T11:00:00Z"}
+        stale = {"generated_at": "2026-10-17T06:00:00Z"}
+        self.assertTrue(is_grid_cell_live(fresh, ttl_seconds=3 * 3600, now=now))
+        self.assertFalse(is_grid_cell_live(stale, ttl_seconds=3 * 3600, now=now))
+
+    def test_is_grid_cell_live_rejects_missing_or_bad_timestamp(self):
+        self.assertFalse(is_grid_cell_live(None))
+        self.assertFalse(is_grid_cell_live({}))
+        self.assertFalse(is_grid_cell_live({"generated_at": "not-a-date"}))
+
+    def test_default_grid_ttl_is_three_hours(self):
+        self.assertEqual(GRID_CELL_TTL_SECONDS, 3 * 60 * 60)
 
 
 if __name__ == "__main__":

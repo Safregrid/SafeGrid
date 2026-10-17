@@ -7,11 +7,18 @@
 
 export const RISK_ZONES_PATH = "/api/risk-zones";
 export const HAZARDS_PATH = "/api/hazards";
+// Point lookup into the regional risk grid: GET /api/risk?lat=&lon=
+// (Person 1's endpoint; see docs/RISK_MODEL.md § 4.1 and docs/OFFLINE.md).
+export const RISK_POINT_PATH = "/api/risk";
 
 // Default age after which cached data is considered stale (see docs/OFFLINE.md).
 // 3 hours matches the normal ingestion cadence; tighten it when an active
 // hazard exists (adaptive cadence) so the UI flags older data sooner.
 export const STALE_AFTER_MS = 3 * 60 * 60 * 1000;
+
+// A grid cell is refreshed on the same 3-hour cadence as the rest of the offline
+// layer, so the same default applies (kept separate so it can diverge later).
+export const GRID_POINT_STALE_AFTER_MS = 3 * 60 * 60 * 1000;
 
 export function isRiskZonesRequest(url, method = "GET") {
   if (String(method).toUpperCase() !== "GET") {
@@ -64,4 +71,23 @@ export function isStale(cachedAt, now, maxAgeMs) {
     return true;
   }
   return now.getTime() - cached > maxAgeMs;
+}
+
+export function isRiskPointRequest(url, method = "GET") {
+  if (String(method).toUpperCase() !== "GET") {
+    return false;
+  }
+  try {
+    const parsed = new URL(url, "http://localhost");
+    return parsed.pathname === RISK_POINT_PATH;
+  } catch {
+    return false;
+  }
+}
+
+export function markPointRiskCached(payload, cachedAt) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+  return { ...payload, is_live: false, cached_at: cachedAt ?? null };
 }

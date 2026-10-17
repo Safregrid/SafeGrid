@@ -13,9 +13,11 @@ const DB_VERSION = 1;
 const STORE_NAME = "snapshots";
 const RISK_ZONES_KEY = "risk-zones";
 const HAZARDS_KEY = "hazards";
+const GRID_CELL_KEY = "grid-cell";
 
 export const RISK_ZONES_STORE_KEY = RISK_ZONES_KEY;
 export const HAZARDS_STORE_KEY = HAZARDS_KEY;
+export const GRID_CELL_STORE_KEY = GRID_CELL_KEY;
 
 function hasIndexedDB() {
   return typeof indexedDB !== "undefined" && indexedDB !== null;
@@ -208,6 +210,13 @@ export async function getHazardsAge() {
   }
 }
 
+export async function clearRiskZones() {
+  if (!hasIndexedDB()) {
+    return;
+  }
+  await withDatabase((database) => deleteRecord(database, RISK_ZONES_KEY));
+}
+
 export async function clearHazards() {
   if (!hasIndexedDB()) {
     return;
@@ -215,9 +224,59 @@ export async function clearHazards() {
   await withDatabase((database) => deleteRecord(database, HAZARDS_KEY));
 }
 
-export async function clearRiskZones() {
+export async function saveGridCellRisk(payload, savedAt = new Date(), isLive = false) {
+  if (!isPlainObject(payload)) {
+    throw new TypeError("saveGridCellRisk expects an object");
+  }
+
+  const record = {
+    key: GRID_CELL_KEY,
+    payload,
+    savedAt: normalizeTimestamp(savedAt),
+    isLive: Boolean(isLive),
+  };
+
+  await withDatabase((database) => writeRecord(database, record));
+}
+
+export async function getLastKnownGridCellRisk() {
+  if (!hasIndexedDB()) {
+    return null;
+  }
+  try {
+    const record = await withDatabase((database) => readRecord(database, GRID_CELL_KEY));
+    if (!record || !isPlainObject(record.payload)) {
+      return null;
+    }
+    return record.payload;
+  } catch {
+    return null;
+  }
+}
+
+export async function getGridCellRiskAge() {
+  const empty = { timestamp: null, isLive: false };
+  if (!hasIndexedDB()) {
+    return empty;
+  }
+  try {
+    const record = await withDatabase((database) => readRecord(database, GRID_CELL_KEY));
+    if (!record || typeof record.savedAt !== "string") {
+      return empty;
+    }
+    const timestamp = new Date(record.savedAt);
+    if (Number.isNaN(timestamp.getTime())) {
+      return empty;
+    }
+    return { timestamp, isLive: Boolean(record.isLive) };
+  } catch {
+    return empty;
+  }
+}
+
+export async function clearGridCellRisk() {
   if (!hasIndexedDB()) {
     return;
   }
-  await withDatabase((database) => deleteRecord(database, RISK_ZONES_KEY));
+  await withDatabase((database) => deleteRecord(database, GRID_CELL_KEY));
 }

@@ -10,6 +10,9 @@
  *   with is_live: false so the UI can label it as cached data.
  * - /api/hazards: network-first, same as risk-zones. Cached payloads are served
  *   with is_live: false and every hazard stamped is_live: false + cached_at.
+ * - /api/risk?lat=&lon= (regional-grid point lookup): network-first. The last
+ *   answer for the user's location is stored in IndexedDB and served with
+ *   is_live: false when the network is unavailable.
  */
 
 import {
@@ -19,17 +22,22 @@ import {
   saveHazards,
   getLastKnownHazards,
   getHazardsAge,
+  saveGridCellRisk,
+  getLastKnownGridCellRisk,
+  getGridCellRiskAge,
 } from "./offline/storage.js";
 import {
   isRiskZonesRequest,
   markAsCached,
   isHazardsRequest,
   markHazardsCached,
+  isRiskPointRequest,
+  markPointRiskCached,
 } from "./offline/policy.js";
 
-const SW_VERSION = "offline-v4";
-const SHELL_CACHE = "safegrid-shell-v4";
-const RUNTIME_CACHE = "safegrid-runtime-v4";
+const SW_VERSION = "offline-v5";
+const SHELL_CACHE = "safegrid-shell-v5";
+const RUNTIME_CACHE = "safegrid-runtime-v5";
 
 const MANIFEST = self.__WB_MANIFEST || [];
 const PRECACHE_URLS = MANIFEST.map((entry) =>
@@ -126,6 +134,40 @@ async function handleHazards(request) {
   }
 }
 
+async function handleRiskPoint(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      try {
+        const payload = await response.clone().json();
+        await saveGridCellRisk(payload, new Date(), true);
+      } catch {
+        // Non-JSON or unreadable body: keep the live response, cache nothing.
+      }
+    }
+    return response;
+  } catch {
+    const [payload, age] = await Promise.all([
+      getLastKnownGridCellRisk(),
+      getGridCellRiskAge(),
+    ]);
+    if (payload) {
+      const cachedAt = age.timestamp ? age.timestamp.toISOString() : null;
+      return new Response(JSON.stringify(markPointRiskCached(payload, cachedAt)), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "X-SafeGrid-Cache": "risk-point",
+        },
+      });
+    }
+    return new Response(JSON.stringify({ error: "offline_no_cache" }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
 async function handleShell(request) {
   const cached =
     (await caches.match(request, { ignoreVary: true })) ||
@@ -172,6 +214,11 @@ self.addEventListener("fetch", (event) => {
 
   if (isHazardsRequest(request.url, request.method)) {
     event.respondWith(handleHazards(request));
+    return;
+  }
+
+  if (isRiskPointRequest(request.url, request.method)) {
+    event.respondWith(handleRiskPoint(request));
     return;
   }
 
