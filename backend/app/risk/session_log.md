@@ -10,10 +10,10 @@
 
 ## Current State (quick reference)
 
-- **Last updated:** 2026-10-15 (EOD — committed & pushed in `06ccb1a`)
-- **Branch:** `feature/risk-engine` — **pushed and in sync** with `origin/feature/risk-engine` (0 ahead / 0 behind). Head: `06ccb1a` "move rainfall engine to a general grid + regional scoring". *(The push also published the earlier unpushed history.)*
+- **Last updated:** 2026-10-20 (EOD — integration verification day)
+- **Branch:** `feature/risk-engine` — **pushed and in sync** with `origin/feature/risk-engine` (0 ahead / 0 behind). Head: `e33f008` "serve any point we have a scored cell for". **2026-10-20:** fast-forward merged `origin/feature/data-ingestion` (17 commits, bringing in P1 + P4 + P3 work) and pushed (`7a3b533..e33f008`).
 - **Subsystem:** `backend/app/risk/` (rainfall engine implemented; geometry toolkit (circles = earthquake-only); grid toolkit + regional scoring added; rain affected-area now grid-based; earthquake spec'd, not coded)
-- **Working tree:** **clean** — the grid work is now **committed & pushed** (`06ccb1a`): `backend/app/risk/{grid.py,rain_grid.py,rain.py,geometry.py,session_log.md}`, `docs/RISK_MODEL.md`, `backend/tests/test_risk/{test_grid.py,test_grid_scoring.py,test_rain.py}`. Only untracked left: `.opencode/`, `opencode.json`, `test.py`, `test1.py` (left alone on purpose).
+- **Working tree (2026-10-20):** one uncommitted change — `backend/app/risk/classifier.py` (stale-TODO comment fix, see today's entry). Scratch files still untracked: `.opencode/`, `opencode.json`, `test.py`, `test1.py` (left alone on purpose).
   - Standing permission (2026-10-11): Person 2 grants commit/push of `session_log.md` at will — **this file only**.
 - **Blocker 2 CLOSED (Person 1, `dc525cb`):** `/api/risk-zones` implemented (`backend/app/api/risk_zones.py`) + registered in `main.py`; `list_hazards_with_risk()` → GeoJSON `FeatureCollection`; 3 API tests (`tests/test_api/test_risk_zones_api.py`). `is_live` hardcoded `False` (honest default until P4 freshness lands).
 - **`docs/RISK_MODEL.md` is now Person 1's v2 framework** (Risk = Hazard × Exposure × Vulnerability, phases P0–P4) with Person 2's earthquake spec retained as **§ 12**.
@@ -22,24 +22,122 @@
 - **Rain → grid geometry (Person 2, 2026-10-15, in `06ccb1a`):** `rain.py` affected area is now the **grid cell** (square) containing the hazard location, not a severity-fabricated circle; `compute_rainfall_polygon` **deleted** (circles reserved for earthquake). +10 `rain.py` engine tests (backlog **#1 done**). `pytest`: **52 passed**.
 - **Rain.py cleanup #6 + #9 (Person 2, 2026-10-15, in `06ccb1a`):** **#9** docstring threshold tables replaced with a pointer to `RISK_MODEL.md` § 3/§ 5 (safety rule kept inline); **#6** fail loud on missing hazard `id`/coordinates (no `"open-meteo:unknown"`, no `(0, 0)`), `source` fallback **kept** (Open-Meteo is SafeGrid's sole source). +5 tests. `pytest`: **57 passed**. **#4 deferred** by P2 (CLI stays in `rain.py`).
 - **Branch vs `main`:** `origin/main` merged into `feature/risk-engine` earlier (`11ffb82`). Local `main` = `7362ac7` = `origin/main`.
-- **Next up:** 🟠 (a) no further grid work until P1/P4 settle the endpoint + storage contract; (b) rain.py backlog remaining: **#4** (move `main()` CLI to `backend/scripts/`) pending P2; **#6/#9 done** (2026-10-15); **#2 accepted as a documented limitation** (grid path bypasses it; 24h bands still needed by the per-event/daily path); **#8 obsolete** (`compute_rainfall_polygon` deleted). Earthquake: RISK_MODEL § 12 drafted; **pick the GMPE** then build `earthquake.py`.
+- **Next up:** 🟢 integration is green for the all-four-people test (see 2026-10-20). Remaining, not Person 2's: (a) P3 wire `fetchRiskAtPoint()` + a call site in `client.js` (point-lookup feature is dead without it); (b) SW falls back to cache only on network throw, not on non-OK (503) responses; (c) `is_live` stamped on cached risk-zones collection, map reads it per-feature; backend hardcodes `is_live:false` on zones. Person 2 backlog unchanged: rain.py **#4** (move `main()` CLI to `backend/scripts/`) pending; **#6/#9 done**; **#2 accepted as a documented limitation**; **#8 obsolete**. Earthquake: RISK_MODEL § 12 drafted; **pick the GMPE** then build `earthquake.py`.
+- **Open Person 2 task:** commit the `classifier.py` comment fix (uncommitted as of EOD 2026-10-20).
 - **Reminder:** send the short WhatsApp summary to the team (architecture proposal drafted 2026-10-12, pending their input).
 
-### Cross-team status (as of 2026-10-11)
+### Cross-team status (as of 2026-10-20)
 
-| Person | Branch | In `main`? | Latest work |
+| Person | Branch | In `feature/risk-engine`? | Latest work |
 |---|---|---|---|
-| P1 Rajat (backend/ingestion) | `feature/data-ingestion` | yes (PR #5) | New 3-tier flow + `DataRecord` model (`models/data.py`) |
-| P4 Syed (database/offline) | `feature/database` | yes (merged via data-ingestion) | IndexedDB cache + service worker, DB contract tests |
-| P3 Suchith (frontend/map) | `feature/frontend-maplibre-ui` | no | `4f4ab42` align MapLibre UI with backend schema |
+| P1 Rajat (backend/ingestion) | `feature/data-ingestion` | yes (merged 2026-10-20) | `/api/risk` point lookup, `run_grid()` pipeline, startup grid refresh |
+| P4 Syed (database/offline) | `feature/database` | yes (relayed via data-ingestion) | grid-cell storage, `/api/hazards` offline cache, IndexedDB + SW, DB contract tests |
+| P3 Suchith (frontend/map) | `feature/frontend-maplibre-ui` | yes (relayed via database) | MapLibre UI; ⚠️ missing `fetchRiskAtPoint()` in `client.js` |
 
-### Changes in `main` that affect Person 2
+### Changes that affect Person 2 (2026-10-20 merge)
+
+- P1's grid path consumes Person 2's engine directly: `app/ingestion/grid_run.py` imports
+  `app.risk.grid` (`GridSpec`, `Region`, `parse_cell_id`) and `app.risk.rain_grid`
+  (`cell_requests`, `score_grid`). The 2026-10-15 grid contract is exactly what P1 built against.
+- The old `weather`-vs-`rainfall` gap (2026-10-11 note below) is **resolved**: `identify_hazard`
+  maps `weather → rainfall`; `classify()` is not called on any live/scheduled path (grid path bypasses it).
+- P4 stores the precomputed grid snapshot (`grid_cells`: flat `latitude`/`longitude`, `affected_area`
+  JSON); Person 2's `polygon` ↔ `affected_area` round-trip is covered by `tests/test_ingestion/test_grid_run.py`.
+
+### Changes that affect Person 2 (from the 2026-10-11 baseline, for history)
 
 - New `backend/app/models/data.py` → `DataRecord` (`data_type`, `source`, `timestamp`, `location`, `magnitude`, `probability`, `specific_data`).
 - Person 1 added `identify_hazard(DataRecord) -> Hazard` to `backend/app/risk/classifier.py` — cross-subsystem edit with TODOs assigned to Person 2.
 - Flow is now: `DataRecord (raw) → identify_hazard() → Hazard → classify() → RiskResult`.
 - `Hazard.probability` redefined as **0–100%**.
 - **Gap:** Open-Meteo ingestion emits `data_type="weather"`; `identify_hazard` sets `hazard_type="weather"`, but `classify()` only accepts `"rainfall"` → `NotImplementedError` on the real pipeline.
+
+---
+
+## 2026-10-20 — Full-team integration verification
+
+**Theme:** no new Person 2 engine code today. Verified the merged state of all four
+people's work end-to-end ahead of the team's full test, and fixed one stale comment
+in Person 2's own subsystem.
+
+### State coming in
+
+- Local `feature/risk-engine` was at `7a3b533`/`06ccb1a` (Person 2's 2026-10-15 grid work).
+- `git fetch` found **P1 `feature/data-ingestion` +17 commits** and **P4 `feature/database`**
+  had moved; P1 had already merged P4 (and P4 had merged P3). `origin/main` unchanged.
+- `git merge-tree` dry-run: merging `origin/feature/data-ingestion` was **conflict-free**.
+
+### Merged everyone's work (no Person 2 code authored)
+
+- Fast-forward merged `origin/feature/data-ingestion` into `feature/risk-engine`
+  → local head `e33f008`. Branch was **17 commits ahead** of `origin/feature/risk-engine`
+  (those commits are P1's/P4's/P3's, relayed through the merge — Person 2 wrote no code today).
+- Confirmed **everyone's work is now contained**: nothing outstanding on `origin/main`,
+  `origin/feature/database`, `origin/feature/frontend-maplibre-ui`, or `origin/feature/data-ingestion`.
+- Pushed: `7a3b533..e33f008` on `feature/risk-engine`. Branch now in sync.
+- What came in that touches Person 2:
+  - P1: `GET /api/risk?lat=&lon=` point lookup (`app/api/risk.py`); `run_grid()`
+    plan→fetch→score→store (`app/ingestion/grid_run.py`); scheduled regional grid refresh
+    at app startup (`app/main.py`); region derivation + batch precipitation fetch.
+  - P4: grid-cell storage (`save_grid_snapshot`/`get_grid_cell`), `/api/hazards` offline
+    cache, IndexedDB + service worker, DB contract tests.
+  - P3: MapLibre UI (relayed via P3's branch merged into `database`).
+
+### Verification (all green)
+
+- **Backend `pytest`: 129 passed** (was 57) — P1's + P4's new suites now run alongside Person 2's.
+- **Frontend:** `npm ci` (new deps incl. `fake-indexeddb`) + `npm run build` OK;
+  `npm test`: **71 passed**.
+- **Live smoke (uvicorn :8000):** startup logged
+  `grid refresh: 16/16 cells stored for gokak-pilot`; `/health` OK.
+  - `GET /api/risk?lat=16.20&lon=74.90` → `in_coverage:true`, `LOW`, severity 0.04,
+    cell polygon, `is_live:true`.
+  - Out-of-region (e.g. Belagavi `15.85,74.50` and `0,0`) → `in_coverage:false`,
+    `reason:"outside_coverage"` (correct three-state contract; out-of-grid ≠ LOW).
+  - Invalid `lat=999` → `422`.
+  - `/api/risk-zones` returns a GeoJSON FeatureCollection; `/api/hazards` returns seeded hazards.
+- **DB (`backend/safegrid.db`):** `grid_cells`=16 (all `gokak-pilot`, generated_at 2026-10-19T17:01Z),
+  `hazards`=2, `risk_results`=1, `data_records`=5.
+- **Frontend app:** served at `http://localhost:5173` (vite proxying `/api` + `/health` to :8000);
+  verified it starts clean.
+- **Contract seams spot-checked and OK:** lat/lon→cell-id axis order & precision, plan/fetch/score
+  dict shapes between P1's `open_meteo`/`grid_run` and Person 2's `cell_requests`/`score_grid`,
+  partial-data honesty, config units vs engine, grid snapshot round-trip, `risk_zones` vs P4's repo.
+
+### Person 2 change made today
+
+- **`backend/app/risk/classifier.py`** — the comment at the `else` branch of `classify()` claimed
+  `"weather"` hazards "currently raise here" and asked to agree the mapping with P1. That is obsolete:
+  `identify_hazard()` maps `"weather" → "rainfall"` via `RAW_TYPE_TO_HAZARD_TYPE`, so the branch is now
+  a genuine catch-all for unclassified hazard types. Reworded the comment (no behavior change).
+  **Uncommitted as of EOD.**
+
+### Cross-team issues found (NOT Person 2's files — handed to owners, do not fix here)
+
+- 🔴 **P3:** `frontend/src/api/client.js` exports only `fetchHazards()`/`fetchRiskZones()` — there is **no
+  `fetchRiskAtPoint()`**, and `main.js` never calls `/api/risk`. The entire point-lookup chain
+  (backend endpoint + SW `handleRiskPoint` + `policy.js` + `storage.js` grid-cell cache) is **dead code
+  from the UI's perspective**. Not an error/crash — a missing feature. Needs the client fn + a call site.
+- 🟡 **P4:** service worker falls back to cache only on a thrown fetch; a reachable-but-non-OK
+  backend response (e.g. 503) is passed through and the valid cached snapshot ignored.
+- 🟡 **P3/P4:** cached `/api/risk-zones` stamps `is_live:false` on the **collection**, but
+  `map/index.js` reads `props.is_live` per **feature** — renders CACHED only by accident. Backend
+  also hardcodes `is_live:false` on zone features, so every polygon click says "CACHED".
+- 🟢 Minor: `grid_run_minutes` unvalidated (a configured ≤0 would busy-loop the refresh task);
+  vite-plugin-pwa registers its own dev SW alongside `main.js`'s registration (dev-only, two SWs race).
+
+### Verification note
+
+An earlier sub-agent review (without a running app) claimed "nothing ever writes hazards →
+endpoints permanently empty". The live smoke **refuted** this: DB has hazard/risk/data rows and
+`/api/hazards` + `/api/risk-zones` return data. Recorded here so the claim is not repeated.
+
+### Next up
+
+- Person 2: commit the `classifier.py` comment fix (this file's standing permission covers
+  `session_log.md` only, so `classifier.py` needs an explicit commit).
+- Team: P3 `fetchRiskAtPoint` wiring; P4 SW non-OK fallback + `is_live` placement.
+- Person 2 backlog unchanged (#4 pending; earthquake: pick the GMPE, then build `earthquake.py`).
 
 ---
 
