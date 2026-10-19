@@ -145,6 +145,73 @@ Each `Feature` represents a geographic polygon area with a calculated risk level
 
 ---
 
+### `GET /api/risk`
+
+Point lookup into the standing regional grid: "what is the risk at this
+coordinate?". Serves the stored `grid_cells` snapshot (see `docs/OFFLINE.md`),
+it does not recompute — so the map and the database cannot disagree.
+
+Both `lat` and `lon` are required. Out-of-range values return `422`.
+
+**Exactly three states.** These are deliberately not collapsed into a risk level:
+
+| State | `in_coverage` | `reason` | `risk_level` |
+|---|---|---|---|
+| Coordinate is outside the pilot region | `false` | `"outside_coverage"` | `null` |
+| Inside the region, no cell scored yet | `true` | `"no_data"` | `null` |
+| Inside the region, cell scored | `true` | `null` | `"HIGH" \| "MODERATE" \| "LOW"` |
+
+**"Outside coverage" is never served as `"LOW"`.** *We do not model this place*
+and *we model it and it is calm* are different claims, and only the second is
+evidence. Clients must branch on `reason` before reading `risk_level`.
+
+Returns `200` for all three states: being outside a small pilot region is an
+expected condition, not an error.
+
+**Response (inside, scored)**
+```json
+{
+  "in_coverage": true,
+  "reason": null,
+  "cell_id": "grid:0.1:1061:2548",
+  "risk_level": "LOW",
+  "severity_score": 0.12,
+  "affected_area": { "type": "Polygon", "coordinates": [...] },
+  "precipitation_mm": 0.3,
+  "computed_at": "2026-10-19T13:59:30+00:00",
+  "generated_at": "2026-10-19T13:59:30+00:00",
+  "is_live": true
+}
+```
+
+**Response (outside the pilot region)**
+```json
+{
+  "in_coverage": false,
+  "reason": "outside_coverage",
+  "cell_id": null,
+  "risk_level": null,
+  "severity_score": null,
+  "affected_area": null,
+  "precipitation_mm": null,
+  "computed_at": null,
+  "generated_at": null,
+  "is_live": false
+}
+```
+
+Notes:
+- `affected_area` is the cell square (GeoJSON `Polygon`). It is named after the
+  `grid_cells.affected_area` column; the GeoJSON-spec name `geometry` applies
+  only inside a `Feature`, and this response is not a `Feature`.
+- Both `generated_at` and `is_live` are exposed, per `docs/OFFLINE.md`. `is_live`
+  is derived from `generated_at` against the grid TTL — never hardcoded. A stale
+  cell is still served (it is the last known rating), with `is_live: false`.
+- `is_live: false` with `reason: "no_data"` means *no data at all*; with a
+  `reason` of `null` it means *stale data*. Clients must distinguish.
+
+---
+
 ## Risk levels
 
 | Value | Meaning |
@@ -186,4 +253,5 @@ Responses include `is_live: false` when data is served from cached or last-known
 | 2026-10-07 | Aligned Hazard model: `magnitude`, `probability`, `specific_data` | Person 1 |
 | 2026-10-09 | Added `GET /api/data` endpoints, 3-tier Data/Hazard/RiskResult model | Person 1 |
 | 2026-10-13 | Implemented `GET /api/risk-zones` (persisted risk results as GeoJSON) | Person 1 |
+| 2026-10-19 | Implemented `GET /api/risk?lat=&lon=` per the `docs/OFFLINE.md` contract: reads `grid_cells`, three states (`outside_coverage` / `no_data` / scored), `is_live` derived from `generated_at` | Person 1 |
 
