@@ -1,6 +1,6 @@
 # SafeGrid — Architecture
 
-> Last updated: 2026-10-06
+> Last updated: 2026-10-17
 > Status: initial scaffold — decisions are recorded as DECIDED or OPEN.
 
 ---
@@ -242,5 +242,6 @@ See `docs/OFFLINE.md`.
 | 2026-10-08 | Field cleanup | `duration` field included | `duration` field removed | Ingestion providers do not output reliable duration window |
 | 2026-10-09 | 3-Tier Domain Architecture | Direct Ingestion → Hazard | Ingestion → DataRecord → Hazard Identification → RiskResult | Avoid conflating routine weather forecasts with active hazards |
 | 2026-10-13 | Risk zone API wired | `/api/risk-zones` stub | Endpoint serves persisted `RiskResult` rows as GeoJSON; engine runs at ingestion via `pipeline.py` | Complete the risk-engine -> API -> map vertical slice |
+| 2026-10-17 | Regional risk grid storage | Grid cells had no home | New `grid_cells` table (cell ≠ hazard event); `is_live` derived from `generated_at` | Standing regional grid (§ RISK_MODEL 4.1) cannot share the `hazard_id`-keyed `risk_results` schema |
 
 When a major architectural decision changes, add a row here and update relevant sections.

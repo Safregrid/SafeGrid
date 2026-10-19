@@ -8,7 +8,17 @@ import { fetchHazards, fetchRiskZones } from './api/client.js';
 
 console.log("SafeGrid frontend initializing...");
 
-// TODO (Person 4): register service worker for offline support — see src/service-worker.js
+// Person 4: register the offline service worker so cached data is available
+// when the network is down.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/service-worker.js", { type: "module" })
+      .catch((error) => {
+        console.error("Service worker registration failed:", error);
+      });
+  });
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   const map = initMap('map');
