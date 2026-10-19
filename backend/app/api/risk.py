@@ -8,15 +8,25 @@ Answers "what is the risk at my location?" by reading the stored `grid_cells`
 snapshot — not by recomputing. It serves what the last run actually scored, so
 what the map shows and what the database holds cannot drift apart.
 
+**Stored cells decide coverage, not the configured box.** If a square was ever
+scored for this point, it is served — because having scored it is precisely
+what "in coverage" means. The configured region only decides what the scheduler
+refreshes; it is not a licence to withhold data we already hold. This lets one
+running server answer for many places.
+
 Exactly three states, and they are never conflated:
 
-    outside the pilot region  -> in_coverage=False, reason="outside_coverage"
-    inside, no scored cell    -> in_coverage=True,  reason="no_data"
-    inside, cell scored       -> risk_level + severity + geometry + is_live
+    a scored cell exists          -> risk_level + severity + geometry + is_live
+    no cell, inside the region    -> in_coverage=True,  reason="no_data"
+    no cell, outside the region   -> in_coverage=False, reason="outside_coverage"
 
 "Outside coverage" must never be reported as LOW: "we do not model here" and
 "we model it and it is calm" are different claims, and only the second one is
 evidence. See docs/RISK_MODEL.md § 4.1 and the project rule LOW != safe.
+
+Note the lookup is by cell_id, which encodes the cell size. Changing
+`grid_cell_size_deg` describes a different grid, so previously scored cells
+will not be found — they stay in the database but read as no-data.
 
 Freshness is derived, never hardcoded: `is_live` comes from P4's
 `is_grid_cell_live()` reading `generated_at` against GRID_CELL_TTL_SECONDS.
@@ -73,22 +83,25 @@ def read_risk_at_point(
     spec = spec_from_settings()
     region = region_from_settings()
 
-    if not region.contains(latitude, longitude):
-        return _not_scored(in_coverage=False, reason="outside_coverage")
-
+    # A stored cell outranks the configured box: having scored this square is
+    # what "in coverage" means, so we serve it even if the scheduler has since
+    # been repointed elsewhere.
     cell = get_grid_cell(cell_id_at(spec, latitude, longitude))
-    if cell is None:
+    if cell is not None:
+        return {
+            "in_coverage": True,
+            "reason": None,
+            "cell_id": cell["cell_id"],
+            "risk_level": cell["risk_level"],
+            "severity_score": cell["severity_score"],
+            "affected_area": cell["affected_area"],
+            "precipitation_mm": cell.get("precipitation_mm"),
+            "computed_at": cell["computed_at"],
+            "generated_at": cell["generated_at"],
+            "is_live": is_grid_cell_live(cell, ttl_seconds=GRID_CELL_TTL_SECONDS),
+        }
+
+    if region.contains(latitude, longitude):
         return _not_scored(in_coverage=True, reason="no_data")
 
-    return {
-        "in_coverage": True,
-        "reason": None,
-        "cell_id": cell["cell_id"],
-        "risk_level": cell["risk_level"],
-        "severity_score": cell["severity_score"],
-        "affected_area": cell["affected_area"],
-        "precipitation_mm": cell.get("precipitation_mm"),
-        "computed_at": cell["computed_at"],
-        "generated_at": cell["generated_at"],
-        "is_live": is_grid_cell_live(cell, ttl_seconds=GRID_CELL_TTL_SECONDS),
-    }
+    return _not_scored(in_coverage=False, reason="outside_coverage")

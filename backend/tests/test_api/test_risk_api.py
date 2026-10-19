@@ -115,6 +115,26 @@ def test_scored_point_returns_exactly_what_the_engine_scored(
     assert body["is_live"] is True
 
 
+def test_a_stored_cell_is_served_even_outside_the_configured_region(
+    client, grid_db, pilot_region
+):
+    """
+    Coverage follows the data, not the config box. Score a place once and a
+    single running server can answer for it without being restarted.
+    """
+    outside_lat, outside_lon = OUTSIDE_POINT
+    snapshot = _score_and_store(outside_lat, outside_lon, grid_db)
+
+    body = client.get(
+        "/api/risk", params={"lat": outside_lat, "lon": outside_lon}
+    ).json()
+
+    assert body["in_coverage"] is True
+    assert body["reason"] is None
+    assert body["cell_id"] in snapshot.cells
+    assert body["risk_level"] == snapshot.cells[body["cell_id"]].risk_level
+
+
 def test_inside_but_unscored_is_no_data_not_low(client, grid_db, pilot_region):
     """Coverage is a claim about modelling, not about weather: no cell != LOW."""
     response = client.get("/api/risk", params={"lat": INSIDE_POINT[0], "lon": INSIDE_POINT[1]})
@@ -128,7 +148,8 @@ def test_inside_but_unscored_is_no_data_not_low(client, grid_db, pilot_region):
 
 
 def test_outside_the_pilot_region_is_never_reported_as_low(client, grid_db, pilot_region):
-    # OUTSIDE_POINT (Bangalore) sits well outside the pinned test bbox above.
+    # OUTSIDE_POINT (Bangalore) sits outside the pinned test bbox AND has no
+    # stored cell — the only combination that may be refused.
     response = client.get("/api/risk", params={"lat": OUTSIDE_POINT[0], "lon": OUTSIDE_POINT[1]})
 
     body = response.json()

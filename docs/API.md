@@ -157,9 +157,19 @@ Both `lat` and `lon` are required. Out-of-range values return `422`.
 
 | State | `in_coverage` | `reason` | `risk_level` |
 |---|---|---|---|
-| Coordinate is outside the pilot region | `false` | `"outside_coverage"` | `null` |
-| Inside the region, no cell scored yet | `true` | `"no_data"` | `null` |
-| Inside the region, cell scored | `true` | `null` | `"HIGH" \| "MODERATE" \| "LOW"` |
+| A scored cell exists for this point | `true` | `null` | `"HIGH" \| "MODERATE" \| "LOW"` |
+| No cell, but inside the configured region | `true` | `"no_data"` | `null` |
+| No cell, and outside the configured region | `false` | `"outside_coverage"` | `null` |
+
+**Stored cells decide coverage, not the configured box.** If a square was ever
+scored for this point it is served — even if the scheduler has since been
+repointed elsewhere — because having scored that square is precisely what *in
+coverage* means. One running server can therefore answer for many places. The
+configured region only decides what the scheduler refreshes.
+
+Changing `grid_cell_size_deg` describes a different grid, so cells scored at
+another size are not found by this endpoint (they remain in the database and
+read as `no_data`).
 
 **"Outside coverage" is never served as `"LOW"`.** *We do not model this place*
 and *we model it and it is calm* are different claims, and only the second is
@@ -168,7 +178,7 @@ evidence. Clients must branch on `reason` before reading `risk_level`.
 Returns `200` for all three states: being outside a small pilot region is an
 expected condition, not an error.
 
-**Response (inside, scored)**
+**Response (a scored cell exists)**
 ```json
 {
   "in_coverage": true,
@@ -184,7 +194,7 @@ expected condition, not an error.
 }
 ```
 
-**Response (outside the pilot region)**
+**Response (no stored cell, outside the configured region)**
 ```json
 {
   "in_coverage": false,
@@ -254,4 +264,5 @@ Responses include `is_live: false` when data is served from cached or last-known
 | 2026-10-09 | Added `GET /api/data` endpoints, 3-tier Data/Hazard/RiskResult model | Person 1 |
 | 2026-10-13 | Implemented `GET /api/risk-zones` (persisted risk results as GeoJSON) | Person 1 |
 | 2026-10-19 | Implemented `GET /api/risk?lat=&lon=` per the `docs/OFFLINE.md` contract: reads `grid_cells`, three states (`outside_coverage` / `no_data` / scored), `is_live` derived from `generated_at` | Person 1 |
+| 2026-10-19 | Coverage now follows the data, not the configured box: a stored cell is served even outside the current region, so one running server answers for many places. `outside_coverage` now means "no cell scored here and outside the region". **Contract change — flagged to Person 4** | Person 1 |
 

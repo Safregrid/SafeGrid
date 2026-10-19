@@ -156,5 +156,6 @@ Out of scope for the MVP. If user-queued actions are added later, they will be q
 | --- | --- | --- |
 | 2026-10-17 | Added regional-grid storage: `grid_cells` table + repository fns, `is_live` freshness from `generated_at`; `/api/risk` point-lookup offline cache (SW `offline-v5`); documented the grid storage/endpoint contract | Person 4 |
 | 2026-10-19 | Contract implemented by Person 1: `GET /api/risk?lat=&lon=` reads `grid_cells` and serves the three agreed states (`outside_coverage` / `no_data` / scored), exposing both `generated_at` and derived `is_live`. Snapshot is now refreshed by `run_grid()` every 120 min, below `GRID_CELL_TTL_SECONDS` (3h) | Person 1 |
+| 2026-10-19 | **Contract change, for Person 4 to review:** coverage is now decided by stored cells rather than the configured bounding box. A square that was ever scored is served even if the scheduler has since moved elsewhere, so one running server answers for many places. `outside_coverage` now means "no cell was ever scored here *and* the point is outside the region". The `grid_cells` schema, `is_live` derivation and offline cache keying are unchanged | Person 1 |
 | 2026-10-13 | Documented implemented strategy; added `/api/hazards` caching + per-hazard `is_live:false`; added `STALE_AFTER_MS`; added `preview.proxy` | Person 4 |
 | 2026-10-11 | Initial placeholder | Person 4 |
