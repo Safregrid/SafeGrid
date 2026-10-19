@@ -35,11 +35,11 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from app.core.config import settings
-from app.db import Database, db, save_grid_snapshot
+from app.db import Database, db, get_grid_cell, save_grid_snapshot
 from app.ingestion.open_meteo import OpenMeteoClient, split_grid_record_id
 from app.ingestion.region import region_around
 from app.models.data import DataRecord
-from app.risk.grid import GridSpec, Region, parse_cell_id
+from app.risk.grid import GridSpec, Region, cell_at, parse_cell_id
 from app.risk.rain_grid import (
     DEFAULT_WINDOW_HOURS,
     CellForecast,
@@ -211,6 +211,53 @@ async def run_grid(
             1 for forecast in forecasts if len(forecast.samples) < window_hours
         ),
     )
+
+
+async def score_cell_on_demand(
+    spec: GridSpec,
+    latitude: float,
+    longitude: float,
+    *,
+    window_hours: int = DEFAULT_WINDOW_HOURS,
+    forecast_days: int | None = None,
+    client: OpenMeteoClient | None = None,
+    database: Database = db,
+) -> dict | None:
+    """
+    Scores and stores the single square containing a point, then returns it.
+
+    The on-demand counterpart of run_grid(): instead of pre-scoring a whole
+    region in advance, this answers for one square the first time anybody
+    asks about it. The result is stored, so every later question about that
+    square is a plain lookup and never touches the weather API again.
+
+    Weather is fetched at the CELL CENTRE rather than at the given point, so a
+    square scored on demand is byte-for-byte the same score as the same square
+    scored by a regional run — the map stays consistent however it was reached.
+
+    Returns None when the provider returned nothing usable for the square.
+    """
+    cell = cell_at(spec, latitude, longitude)
+    if forecast_days is None:
+        forecast_days = forecast_days_for(window_hours)
+
+    fetcher = client or OpenMeteoClient()
+    records = await fetcher.fetch_precipitation_many(
+        [(cell.cell_id, cell.center[0], cell.center[1])],
+        forecast_days=forecast_days,
+    )
+
+    forecasts = group_into_cell_forecasts(records)
+    if not forecasts:
+        return None
+
+    snapshot = score_grid(spec, forecasts, window_hours=window_hours)
+    save_grid_snapshot(
+        storage_rows(spec, snapshot),
+        generated_at=snapshot.generated_at,
+        database=database,
+    )
+    return get_grid_cell(cell.cell_id, database=database)
 
 
 def spec_from_settings() -> GridSpec:

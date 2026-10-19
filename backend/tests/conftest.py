@@ -12,3 +12,8 @@ import os
 # and a test session would write to the shared safegrid.db on a timer.
 # Each test opts back in where needed by monkeypatching the flag.
 os.environ["grid_scheduler_enabled"] = "false"
+
+# Same reasoning for on-demand scoring: a test must never reach the network
+# because an endpoint happened to miss the cache. Tests that exercise the
+# on-demand path inject a fake client instead.
+os.environ["grid_score_on_demand"] = "false"

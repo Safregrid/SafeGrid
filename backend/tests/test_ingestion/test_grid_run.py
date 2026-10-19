@@ -18,12 +18,13 @@ from app.ingestion.grid_run import (
     group_into_cell_forecasts,
     region_from_settings,
     run_grid,
+    score_cell_on_demand,
     spec_from_settings,
     storage_rows,
 )
 from app.models.data import DataRecord
 from app.models.hazard import GeoPoint
-from app.risk.grid import GridSpec, Region
+from app.risk.grid import GridSpec, Region, cell_at, cell_id_at
 from app.risk.rain_grid import CellForecast, HourlySample, cell_requests, score_grid
 
 SPEC = GridSpec(cell_size_deg=0.1)
@@ -239,6 +240,70 @@ async def test_run_grid_never_turns_a_cell_into_a_hazard():
     assert report.complete
     assert len(list_grid_cells(database=database)) == report.planned_cells
     assert list_hazards_with_risk(database=database) == []
+
+
+# --- score_cell_on_demand ------------------------------------------------------
+
+
+async def test_on_demand_scores_and_stores_exactly_one_square():
+    database = _fresh_db()
+    client = FakeClient()
+    latitude, longitude = 16.05, 74.75
+
+    cell = await score_cell_on_demand(
+        SPEC, latitude, longitude, client=client, database=database
+    )
+
+    assert cell is not None
+    assert cell["cell_id"] == cell_id_at(SPEC, latitude, longitude)
+    assert cell["risk_level"] in {"HIGH", "MODERATE", "LOW"}
+    assert client.last_forecast_days == forecast_days_for(24)
+
+    # One square, and still no hazard: the cell-never-becomes-an-event rule
+    # holds on this path too.
+    assert len(list_grid_cells(database=database)) == 1
+    assert list_hazards_with_risk(database=database) == []
+
+
+async def test_on_demand_stores_nothing_when_the_provider_returns_no_amount():
+    database = _fresh_db()
+
+    cell = await score_cell_on_demand(
+        SPEC, 16.05, 74.75, client=FakeClient(omit_amount=True), database=database
+    )
+
+    assert cell is None
+    assert list_grid_cells(database=database) == []
+
+
+async def test_on_demand_samples_the_cell_centre_not_the_asked_point():
+    """
+    A square scored on demand must equal the same square scored by a regional
+    run, so weather is fetched at the CELL CENTRE — not at the user's doorstep.
+    Otherwise two people a street apart could get different scores for one square.
+    """
+
+    class CentreRecorder(FakeClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.coords = None
+
+        async def fetch_precipitation_many(self, coords, *, forecast_days=None):
+            self.coords = coords
+            return await super().fetch_precipitation_many(
+                coords, forecast_days=forecast_days
+            )
+
+    database = _fresh_db()
+    client = CentreRecorder()
+    latitude, longitude = 16.051, 74.751  # deliberately off-centre
+
+    await score_cell_on_demand(
+        SPEC, latitude, longitude, client=client, database=database
+    )
+
+    cell = cell_at(SPEC, latitude, longitude)
+    assert client.coords == [(cell.cell_id, cell.center[0], cell.center[1])]
 
 
 # --- config-driven region ------------------------------------------------------

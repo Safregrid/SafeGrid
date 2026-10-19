@@ -20,6 +20,12 @@ Exactly three states, and they are never conflated:
     no cell, inside the region    -> in_coverage=True,  reason="no_data"
     no cell, outside the region   -> in_coverage=False, reason="outside_coverage"
 
+When no cell is stored, the square is scored **on demand** (weather fetched,
+scored, stored) and then served. Saying "we do not know" when finding out takes
+about a second would not be honesty, it would just be unhelpfulness. Because
+the result is stored, only the first question about a square ever pays that
+cost. Disable with `grid_score_on_demand`.
+
 "Outside coverage" must never be reported as LOW: "we do not model here" and
 "we model it and it is calm" are different claims, and only the second one is
 evidence. See docs/RISK_MODEL.md § 4.1 and the project rule LOW != safe.
@@ -35,15 +41,24 @@ Both `generated_at` and `is_live` are exposed, as the contract requires.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Query
 
+from app.core.config import settings
 from app.db import (
     GRID_CELL_TTL_SECONDS,
     get_grid_cell,
     is_grid_cell_live,
 )
-from app.ingestion.grid_run import region_from_settings, spec_from_settings
-from app.risk.grid import cell_id_at
+from app.ingestion.grid_run import (
+    region_from_settings,
+    score_cell_on_demand,
+    spec_from_settings,
+)
+from app.risk.grid import GridSpec, cell_id_at
+
+logger = logging.getLogger("safegrid.api.risk")
 
 router = APIRouter(prefix="/risk", tags=["risk"])
 
@@ -64,13 +79,30 @@ def _not_scored(in_coverage: bool, reason: str) -> dict:
     }
 
 
+async def _score_now(spec: GridSpec, latitude: float, longitude: float) -> dict | None:
+    """
+    Score one square the first time anybody asks about it.
+
+    A failure here is logged and reported as "no data" rather than raised: a
+    weather API being down must not turn a lookup into a 500, and "we have no
+    data" remains the truthful answer either way.
+    """
+    try:
+        return await score_cell_on_demand(spec, latitude, longitude)
+    except Exception:
+        logger.exception(
+            "on-demand scoring failed for (%s, %s)", latitude, longitude
+        )
+        return None
+
+
 @router.get("")
-def read_risk_at_point(
+async def read_risk_at_point(
     latitude: float = Query(..., alias="lat", ge=-90, le=90),
     longitude: float = Query(..., alias="lon", ge=-180, le=180),
 ) -> dict:
     """
-    Risk for one coordinate, from the latest stored grid snapshot.
+    Risk for one coordinate, from the stored grid snapshot.
 
     Both `lat` and `lon` are required; out-of-range values return 422 rather
     than a guess. Returns 200 for all three states above — being outside the
@@ -83,10 +115,17 @@ def read_risk_at_point(
     spec = spec_from_settings()
     region = region_from_settings()
 
-    # A stored cell outranks the configured box: having scored this square is
+    # A stored square outranks the configured box: having scored this square is
     # what "in coverage" means, so we serve it even if the scheduler has since
     # been repointed elsewhere.
     cell = get_grid_cell(cell_id_at(spec, latitude, longitude))
+
+    if cell is None and settings.grid_score_on_demand:
+        # Nobody has asked about this square before. Saying "we do not know"
+        # when finding out takes about a second would not be honesty, it would
+        # just be unhelpfulness. Score it, store it, answer.
+        cell = await _score_now(spec, latitude, longitude)
+
     if cell is not None:
         return {
             "in_coverage": True,

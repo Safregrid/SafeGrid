@@ -188,3 +188,67 @@ def test_is_live_is_derived_from_generated_at_not_hardcoded(
 )
 def test_bad_coordinates_are_rejected_not_guessed(client, grid_db, pilot_region, params):
     assert client.get("/api/risk", params=params).status_code == 422
+
+
+# --- on-demand scoring ---------------------------------------------------------
+
+
+def test_an_unscored_point_is_scored_then_remembered(
+    client, grid_db, pilot_region, monkeypatch
+):
+    """Nobody has asked about this square before: score it, store it, answer."""
+    monkeypatch.setattr(settings, "grid_score_on_demand", True)
+    calls: list[tuple[float, float]] = []
+
+    async def fake_score(spec, latitude, longitude):
+        calls.append((latitude, longitude))
+        _score_and_store(latitude, longitude, grid_db)
+        return _get_grid_cell(cell_id_at(spec, latitude, longitude), database=grid_db)
+
+    monkeypatch.setattr(risk_api, "score_cell_on_demand", fake_score)
+
+    first = client.get(
+        "/api/risk", params={"lat": INSIDE_POINT[0], "lon": INSIDE_POINT[1]}
+    ).json()
+    second = client.get(
+        "/api/risk", params={"lat": INSIDE_POINT[0], "lon": INSIDE_POINT[1]}
+    ).json()
+
+    assert calls == [INSIDE_POINT]
+    assert first["in_coverage"] is True
+    assert first["reason"] is None
+    assert first["risk_level"] is not None
+    # The second ask is served from storage and costs no weather request.
+    assert second["cell_id"] == first["cell_id"]
+    assert len(calls) == 1
+
+
+def test_on_demand_is_off_by_default_in_tests(client, grid_db, pilot_region):
+    """
+    conftest disables it so a test session can never reach the network by
+    accident; the no-data answer is therefore the unstubbed behaviour.
+    """
+    body = client.get(
+        "/api/risk", params={"lat": INSIDE_POINT[0], "lon": INSIDE_POINT[1]}
+    ).json()
+
+    assert body["reason"] == "no_data"
+
+
+def test_on_demand_failure_degrades_to_no_data_not_a_500(
+    client, grid_db, pilot_region, monkeypatch
+):
+    """A weather API outage must not turn a lookup into a server error."""
+    monkeypatch.setattr(settings, "grid_score_on_demand", True)
+
+    async def boom(spec, latitude, longitude):
+        raise RuntimeError("weather API down")
+
+    monkeypatch.setattr(risk_api, "score_cell_on_demand", boom)
+
+    response = client.get(
+        "/api/risk", params={"lat": INSIDE_POINT[0], "lon": INSIDE_POINT[1]}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["reason"] == "no_data"

@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     # Whether FastAPI starts the refresh loop at startup. Disabled in tests
     # (tests/conftest.py) so a test session never makes a real Open-Meteo call.
     grid_scheduler_enabled: bool = True
+    # Whether GET /api/risk scores a square on demand when none is stored.
+    # Also disabled in tests, for the same reason. A public deployment must
+    # rate-limit this first — see docs/API.md.
+    grid_score_on_demand: bool = True
 
 
 settings = Settings()
