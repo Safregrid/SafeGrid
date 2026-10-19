@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # Refresh cadence for the scheduled runner. Must stay BELOW P4's
     # GRID_CELL_TTL_SECONDS (3h) or every served cell reads as stale immediately.
     grid_run_minutes: int = 120
+    # Whether FastAPI starts the refresh loop at startup. Disabled in tests
+    # (tests/conftest.py) so a test session never makes a real Open-Meteo call.
+    grid_scheduler_enabled: bool = True
 
 
 settings = Settings()
