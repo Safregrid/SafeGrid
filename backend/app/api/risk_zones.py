@@ -37,13 +37,12 @@ def _to_feature(row: dict) -> dict | None:
             "hazard_type" : row.get("hazard_type"),
             "risk_level": row.get("risk_level"), # HIGH | MODERATE | LOW
             "severity_score": row.get("severity_score"),  # 0.0 - 10.0
-            # NOTE: list_hazards_with_risk() doesn't select r.calculated_at yet.
-            # Ask P4 to add it to the JOIN's SELECT; until then it's None and
-            # the frontend falls back to a neutral rendering.
+            # Selected by list_hazards_with_risk() (JOIN includes r.calculated_at).
             "calculated_at": row.get("calculated_at"),
-            "is_live": False,  # No live ingestion is wired yet, so honest default is False.
-            # When data-freshness lands (P4's offline layer), derive this from
-            # the ingestion timestamp instead of hardcoding.
+            # P4's freshness helper (is_grid_cell_live) covers grid_cells only.
+            # This per-hazard feed stays False until ingestion feeds the risk
+            # pipeline on a schedule; derive it then instead of hardcoding.
+            "is_live": False,
         },
     }
 
