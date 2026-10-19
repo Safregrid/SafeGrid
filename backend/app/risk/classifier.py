@@ -92,9 +92,10 @@ def classify(hazard: Hazard) -> RiskResult:
     if hazard.hazard_type == "rainfall":
         return _classify_rainfall(hazard)
     else:
-        # TODO(open): "weather" hazards from Open-Meteo ingestion currently
-        # raise here — agree the data_type -> hazard_type mapping with Person 1.
-        # Person 2 will create a separate file for earthquakes etc.
+        # Catch-all for hazard types without a classifier yet. Open-Meteo
+        # "weather" records are mapped to "rainfall" in identify_hazard()
+        # (RAW_TYPE_TO_HAZARD_TYPE), so they never reach this branch.
+        # Earthquakes etc. will get their own module/classifier.
         raise NotImplementedError(
             f"Classification for hazard type '{hazard.hazard_type}' will be added in a separate module."
         )
