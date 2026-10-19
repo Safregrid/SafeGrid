@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     grid_max_lat: float = 16.3
     grid_max_lon: float = 75.0
 
+    # The region can instead be described the way a user describes where they
+    # live: a point plus a radius. When both centre values are set they win
+    # over the bounding box above. See app/ingestion/region.py — this is a
+    # coverage parameter (what we look at), not a risk threshold.
+    # WORKING ASSUMPTION, same caveat as the box: unset by default.
+    grid_center_lat: float | None = None
+    grid_center_lon: float | None = None
+    grid_radius_km: float = 20.0
+
     grid_window_hours: int = 24  # peak-hour scoring window (P2's DEFAULT_WINDOW_HOURS)
     # Refresh cadence for the scheduled runner. Must stay BELOW P4's
     # GRID_CELL_TTL_SECONDS (3h) or every served cell reads as stale immediately.

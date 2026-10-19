@@ -180,6 +180,17 @@ location can be answered instantly from a snapshot.
   polygon, and `computed_at`. The **user-facing answer returns all four** —
   `risk_level` + `severity_score` + cell polygon + `computed_at` — and leaves it to the
   caller/UI to decide whether to display the score.
+- **How the region is chosen.** The region is config, not a place, and a user supplies no
+  bounding box. A granted location is turned into one two ways: an explicit box, or a
+  **declared radius** around the point (`region_around(lat, lon, radius_km)`, Person 1).
+  The radius is a **coverage** parameter, not a risk threshold — it decides what we look
+  at, never how dangerous something is — and the centre wins over the box when both are
+  set. Two honesty points: the radius yields the **bounding box of square cells, never a
+  circle**, so the § 4 "circles forbidden" rule is respected (its corners lie up to
+  √2 × radius from the centre); and **village boundaries are deliberately not used**,
+  because reliable outlines are unavailable to us (OSM coverage is patchy across rural
+  Karnataka) and a wrong outline would silently score the wrong ground while looking
+  authoritative.
 - **Out-of-grid is not LOW.** A point **outside the region** returns an explicit
   *outside-coverage* result; a point inside the region but in an **unscored cell** returns
   *no-data*. Neither is ever reported as `LOW` (see the non-negotiable in § 1).
@@ -187,6 +198,8 @@ location can be answered instantly from a snapshot.
 > **WORKING ASSUMPTION**: the default **cell size is 0.1° (~11 km)** — the Open-Meteo model
 > resolution, so no precision is fabricated — and the peak-hour **window is 24 h**. Both are
 > parameters, not constants; final values are pending (**§ 10, decision 7**).
+> The **coverage radius** defaults to **20 km** (`grid_radius_km`), likewise a declared
+> parameter rather than a tuned value.
 >
 > **DEFERRED (not implemented):** hour selection is currently **positional** (first *N*
 > samples). A **temporal** window — filter samples to `[now, now + N h)` using each sample's
@@ -428,3 +441,4 @@ Proposed mapping (severity 0.0–10.0), to be confirmed with the GMPE:
 | 2026-10-15 | Merge of `feature/data-ingestion` into `feature/risk-engine`: kept Person 1's v2 framework; re-applied Person 2's earthquake spec as § 12; pointer fixes in § 4 / § 10 | Person 2 |
 | 2026-10-15 | Added § 4.1 regional risk grid (precomputed snapshot → point lookup): region-agnostic config grid, peak-hour scoring, out-of-grid ≠ LOW, user-facing output = level + polygon + computed_at; open decision 7 (cell size + window) | Person 2 |
 | 2026-10-15 | Rain geometry switched to the grid: § 4 rewritten — rainfall affected area = the grid cell (square), `compute_rainfall_polygon` removed, no circle fallback; circles are earthquake-only (§ 12). Decision 2 closed | Person 2 |
+| 2026-10-19 | § 4.1: documented how a region is chosen — a granted location becomes a box either explicitly or via a **declared coverage radius** (`region_around(lat, lon, radius_km)`), centre winning when both are set. Radius is a coverage parameter, not a risk threshold; it yields the **bounding box of square cells, never a circle** (§ 4 rule respected). Village boundaries deliberately unused: OSM outlines are too patchy across rural Karnataka to trust, and a wrong outline would score the wrong ground while looking authoritative | Person 1 |

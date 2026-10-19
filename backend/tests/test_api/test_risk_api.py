@@ -57,16 +57,19 @@ def grid_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def far_region(monkeypatch):
+def pilot_region(monkeypatch):
     """
-    A bbox with no stored cells in the dev database, so the coverage and
-    no-data cases are deterministic regardless of the real pilot snapshot.
+    Pins the region to known coordinates so these tests are independent of a
+    developer's local .env — which may point the pilot anywhere at all.
+    A bbox with no stored cells, so coverage and no-data stay deterministic.
     """
     monkeypatch.setattr(settings, "grid_region_name", "test-region")
     monkeypatch.setattr(settings, "grid_min_lat", 17.0)
     monkeypatch.setattr(settings, "grid_min_lon", 74.0)
     monkeypatch.setattr(settings, "grid_max_lat", 17.2)
     monkeypatch.setattr(settings, "grid_max_lon", 74.2)
+    monkeypatch.setattr(settings, "grid_center_lat", None)
+    monkeypatch.setattr(settings, "grid_center_lon", None)
 
 
 def _score_and_store(latitude, longitude, database, generated_at=None):
@@ -92,7 +95,7 @@ def _score_and_store(latitude, longitude, database, generated_at=None):
 
 
 def test_scored_point_returns_exactly_what_the_engine_scored(
-    client, grid_db, far_region
+    client, grid_db, pilot_region
 ):
     """End to end: P2 scores, P4 stores, the API reports the same answer."""
     snapshot = _score_and_store(*INSIDE_POINT, grid_db)
@@ -112,7 +115,7 @@ def test_scored_point_returns_exactly_what_the_engine_scored(
     assert body["is_live"] is True
 
 
-def test_inside_but_unscored_is_no_data_not_low(client, grid_db, far_region):
+def test_inside_but_unscored_is_no_data_not_low(client, grid_db, pilot_region):
     """Coverage is a claim about modelling, not about weather: no cell != LOW."""
     response = client.get("/api/risk", params={"lat": INSIDE_POINT[0], "lon": INSIDE_POINT[1]})
 
@@ -124,7 +127,8 @@ def test_inside_but_unscored_is_no_data_not_low(client, grid_db, far_region):
     assert body["is_live"] is False
 
 
-def test_outside_the_pilot_region_is_never_reported_as_low(client, grid_db):
+def test_outside_the_pilot_region_is_never_reported_as_low(client, grid_db, pilot_region):
+    # OUTSIDE_POINT (Bangalore) sits well outside the pinned test bbox above.
     response = client.get("/api/risk", params={"lat": OUTSIDE_POINT[0], "lon": OUTSIDE_POINT[1]})
 
     body = response.json()
@@ -137,7 +141,7 @@ def test_outside_the_pilot_region_is_never_reported_as_low(client, grid_db):
 
 
 def test_is_live_is_derived_from_generated_at_not_hardcoded(
-    client, grid_db, far_region
+    client, grid_db, pilot_region
 ):
     """A five-hour-old snapshot is stale against the 3h TTL — but still served."""
     stale = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
@@ -161,5 +165,5 @@ def test_is_live_is_derived_from_generated_at_not_hardcoded(
         {"lat": 17.05, "lon": 200.0},  # out of range
     ],
 )
-def test_bad_coordinates_are_rejected_not_guessed(client, grid_db, far_region, params):
+def test_bad_coordinates_are_rejected_not_guessed(client, grid_db, pilot_region, params):
     assert client.get("/api/risk", params=params).status_code == 422

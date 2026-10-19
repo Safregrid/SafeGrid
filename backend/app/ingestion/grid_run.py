@@ -20,13 +20,16 @@ hazard_type "rainfall", and produce one hazard row plus one risk_result row per
 grid square - exactly what docs/OFFLINE.md forbids ("a cell never becomes a
 hazard"). Cells belong in grid_cells only.
 
-Run it manually to refresh the region:
+Run it manually to refresh the configured region, or to score anywhere on
+Earth from a single point (no config file needed):
 
     cd backend && .venv/bin/python -m app.ingestion.grid_run
+    cd backend && .venv/bin/python -m app.ingestion.grid_run --lat 14.6219 --lon 74.8818
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 from dataclasses import dataclass
 from typing import Iterable
@@ -34,6 +37,7 @@ from typing import Iterable
 from app.core.config import settings
 from app.db import Database, db, save_grid_snapshot
 from app.ingestion.open_meteo import OpenMeteoClient, split_grid_record_id
+from app.ingestion.region import region_around
 from app.models.data import DataRecord
 from app.risk.grid import GridSpec, Region, parse_cell_id
 from app.risk.rain_grid import (
@@ -215,7 +219,25 @@ def spec_from_settings() -> GridSpec:
 
 
 def region_from_settings() -> Region:
-    """Pilot bounding box from config, so repointing the pilot is an env var."""
+    """
+    Pilot region from config, so repointing the pilot is an env var.
+
+    Two ways to describe it, and centre + radius is the one that matches how a
+    user describes where they live ("I am in Sirsi", not four coordinates):
+
+        grid_center_lat/lon (+ grid_radius_km) -> a radius around a point
+        grid_min/max_lat/lon                   -> an explicit bounding box
+
+    The centre wins when both are given.
+    """
+    if settings.grid_center_lat is not None and settings.grid_center_lon is not None:
+        return region_around(
+            settings.grid_center_lat,
+            settings.grid_center_lon,
+            settings.grid_radius_km,
+            name=settings.grid_region_name,
+        )
+
     return Region(
         name=settings.grid_region_name,
         min_lat=settings.grid_min_lat,
@@ -235,10 +257,45 @@ async def run_grid_from_settings(database: Database = db) -> GridRunReport:
     )
 
 
-def _main() -> None:
-    report = asyncio.run(run_grid_from_settings())
+def _main(argv: list[str] | None = None) -> None:
+    """
+    One run, over either the configured pilot region or a point given on the
+    command line. The point form is the "I live in <village>" case, and needs
+    no config file at all:
+
+        python -m app.ingestion.grid_run
+        python -m app.ingestion.grid_run --lat 14.6219 --lon 74.8818
+        python -m app.ingestion.grid_run --lat 14.6219 --lon 74.8818 --radius-km 35
+    """
+    parser = argparse.ArgumentParser(description="Score and store one grid run.")
+    parser.add_argument("--lat", type=float, help="centre latitude of the area to score")
+    parser.add_argument("--lon", type=float, help="centre longitude of the area to score")
+    parser.add_argument(
+        "--radius-km",
+        type=float,
+        default=settings.grid_radius_km,
+        help=f"radius around that point, in km (default {settings.grid_radius_km:g})",
+    )
+    args = parser.parse_args(argv)
+
+    if (args.lat is None) != (args.lon is None):
+        parser.error("--lat and --lon must be given together")
+
+    region = (
+        region_around(args.lat, args.lon, args.radius_km)
+        if args.lat is not None
+        else region_from_settings()
+    )
+
+    report = asyncio.run(
+        run_grid(spec_from_settings(), region, window_hours=settings.grid_window_hours)
+    )
 
     print(f"region        : {report.region_name}")
+    print(
+        f"bounds        : lat {region.min_lat:.4f}..{region.max_lat:.4f}, "
+        f"lon {region.min_lon:.4f}..{region.max_lon:.4f}"
+    )
     print(f"cell size     : {report.cell_size_deg} deg")
     print(f"planned cells : {report.planned_cells}")
     print(f"records       : {report.fetched_records}")
