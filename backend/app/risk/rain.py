@@ -9,33 +9,17 @@ Accepts normalized precipitation hazard events (produced by Person 1's Open-Mete
 ingestion or Person 4's database layer) and calculates:
 1. Deterministic risk level (LOW, MODERATE, HIGH)
 2. Continuous severity score (0.0 to 10.0)
-3. GeoJSON Polygon affected-area geometry for MapLibre rendering (Person 3)
-4. Contextual summary, compounding factors, and threshold explanations
+3. GeoJSON Polygon geometry for MapLibre rendering (Person 3): the **grid cell**
+   containing the hazard location (see docs/RISK_MODEL.md § 4.1). Rainfall is
+   gridded — fabricated circles are not used for rain.
 
-Scientific Threshold Justifications:
-- Hourly precipitation thresholds follow the India Meteorological Department (IMD)
-  rainfall spell-rate classification (IMD expresses intensity as a spell rate in
-  cm/h; 1 cm = 10 mm):
-    - Light spell: < 1 cm/h (< 10 mm/h) -> LOW (Score 0.0 - 3.9)
-    - Moderate spell: 1 - 2 cm/h (10 - 20 mm/h) -> MODERATE (Score 4.0 - 6.9)
-    - Intense spell: 2 - 3 cm/h (20 - 30 mm/h) -> HIGH (Score 7.0 - 8.4)
-    - Very intense spell: 3 - 5 cm/h (30 - 50 mm/h) -> HIGH (Score 8.5 - 9.4)
-    - Extremely intense spell: 5 - 10 cm/h (50 - 100 mm/h) -> HIGH (Score 9.5 - 10.0)
-    - Cloudburst: > 10 cm/h (> 100 mm/h) -> HIGH (Score 10.0)
-- 24-Hour accumulation thresholds follow the India Meteorological Department (IMD)
-  standard rainfall classification:
-    - Light: < 15.5 mm / 24h (LOW)
-    - Moderate: 15.6 - 64.4 mm / 24h (MODERATE)
-    - Heavy: 64.5 - 115.5 mm / 24h (HIGH)
-    - Very heavy: > 115.5 mm / 24h (HIGH)
-- Weather codes are the WMO weather interpretation codes (WW, WMO-No. 306) as
-  returned by Open-Meteo; IMD, as a WMO member, uses the same synoptic codes.
-- Compounding factors (Open-Meteo meteorological parameters):
-    - Wind gusts >= 65 km/h or sustained speed >= 50 km/h: adds power-line /
-      infrastructure failure hazard modifier (+1.5 score).
-    - Moderate wind gusts >= 45 km/h: (+0.8 modifier).
-    - WMO Convective Storm codes (95, 96, 97, 99: Thunderstorms; 82: Violent showers):
-      imposes a HIGH risk floor (score >= 7.0).
+Presentation (badges, summaries, disclaimers, human-readable factor prose) is
+NOT produced here — that belongs to the API/frontend layer.
+
+Thresholds, sources and justifications are NOT restated here, to avoid drift with
+the single source of truth:
+- docs/RISK_MODEL.md § 3 — rainfall intensity, accumulation, compounding factors.
+- docs/RISK_MODEL.md § 5 — risk-level bands and severity scale.
 
 MANDATORY SAFETY RULE:
 Low risk (GREEN) indicates low hazard relative to the threshold;
@@ -44,13 +28,19 @@ it must NEVER be described as absolute safety.
 
 from __future__ import annotations
 
-import ast
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
-import math
 import sys
 from typing import Any, Optional
+
+from app.risk.grid import GridSpec, cell_at
+
+# Grid resolution for the per-hazard rainfall affected-area cell.
+# WORKING ASSUMPTION (docs/RISK_MODEL.md § 4.1, open decision 7): 0.1 deg ~ 11 km,
+# the Open-Meteo model resolution — no finer than the data supports. Overridable
+# per call; the standing regional grid (rain_grid.py) carries its own spec.
+DEFAULT_GRID_SPEC = GridSpec(cell_size_deg=0.1)
 
 
 @dataclass
@@ -76,10 +66,6 @@ class PrecipitationRiskResult:
     time_window: str
     risk_level: str          # "HIGH" | "MODERATE" | "LOW"
     severity_score: float    # 0.0 to 10.0
-    badge: str               # 🔴 | 🟡 | 🟢
-    summary: str
-    factors: list[str]
-    disclaimer: str
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -121,71 +107,15 @@ WMO_DESCRIPTIONS: dict[int, str] = {
 }
 
 
-def compute_rainfall_polygon(
-    latitude: float,
-    longitude: float,
-    severity_score: float,
-    num_points: int = 16,
-) -> dict[str, Any]:
-    """
-    Computes a valid GeoJSON Polygon representing the precipitation and runoff impact zone.
-
-    The radius scales deterministically with severity score:
-    - Low Risk (< 4.0): ~3 km to 5 km buffer (localized shower / grid cell footprint).
-    - Moderate Risk (4.0 - 6.9): ~5 km to 10 km buffer (drainage / waterlogging zone).
-    - High Risk (>= 7.0): ~10 km to 20 km buffer (flash flood catchment & storm cell).
-
-    Coordinates are formatted as [longitude, latitude] in accordance with RFC 7946 GeoJSON.
-    The first and last coordinate points are identical to form a closed linear ring.
-    """
-    score = max(0.0, min(10.0, float(severity_score)))
-    if score < 4.0:
-        radius_km = 3.0 + (score / 4.0) * 2.0
-    elif score < 7.0:
-        radius_km = 5.0 + ((score - 4.0) / 3.0) * 5.0
-    else:
-        radius_km = 10.0 + ((score - 7.0) / 3.0) * 10.0
-
-    lat_clamped = max(-89.9, min(89.9, float(latitude)))
-    lon_clamped = float(longitude)
-
-    lat_rad = math.radians(lat_clamped)
-    km_per_deg_lat = 111.32
-    # Prevent division by zero near poles
-    cos_lat = max(0.0001, math.cos(lat_rad))
-    km_per_deg_lon = 111.32 * cos_lat
-
-    delta_lat = radius_km / km_per_deg_lat
-    delta_lon = radius_km / km_per_deg_lon
-
-    ring: list[list[float]] = []
-    for i in range(num_points):
-        angle = (2.0 * math.pi * i) / num_points
-        pt_lat = round(lat_clamped + delta_lat * math.sin(angle), 6)
-        pt_lon = round(lon_clamped + delta_lon * math.cos(angle), 6)
-        # Normalize longitude to [-180, 180]
-        pt_lon = round((pt_lon + 180.0) % 360.0 - 180.0, 6)
-        ring.append([pt_lon, pt_lat])
-
-    # Close the polygon ring as required by GeoJSON specification
-    ring.append(ring[0])
-
-    return {
-        "type": "Polygon",
-        "coordinates": [ring],
-    }
-
-
 def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskResult:
     """
-    Computes deterministic risk level, severity score, and contributing factors.
+    Computes deterministic risk level and severity score.
 
     Returns:
         PrecipitationRiskResult with risk_level in {"HIGH", "MODERATE", "LOW"}
     """
     precip = max(0.0, data.precipitation_mm)
     window = 1 if data.time_window_hours <= 1 else 24
-    factors: list[str] = []
 
     # 1. Base score derived from precipitation intensity
     if window == 1:
@@ -194,106 +124,59 @@ def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskR
         if precip < 10.0:
             # Light spell (< 1 cm/h)
             base_score = (precip / 10.0) * 3.9
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is a light spell (< 1 cm/h).")
         elif precip < 20.0:
             # Moderate spell (1 - 2 cm/h)
             base_score = 4.0 + ((precip - 10.0) / 10.0) * 2.9
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is a moderate spell (1 - 2 cm/h).")
         elif precip < 30.0:
             # Intense spell (2 - 3 cm/h)
             base_score = 7.0 + ((precip - 20.0) / 10.0) * 1.4
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is an intense spell (2 - 3 cm/h).")
         elif precip < 50.0:
             # Very intense spell (3 - 5 cm/h)
             base_score = 8.5 + ((precip - 30.0) / 20.0) * 0.9
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is a very intense spell (3 - 5 cm/h).")
         elif precip < 100.0:
             # Extremely intense spell (5 - 10 cm/h)
             base_score = 9.5 + ((precip - 50.0) / 50.0) * 0.5
-            factors.append(f"Hourly precipitation of {precip:.1f} mm/h is an extremely intense spell (5 - 10 cm/h).")
         else:
             # Cloudburst (> 10 cm/h)
             base_score = 10.0
-            factors.append(
-                f"Hourly precipitation of {precip:.1f} mm/h exceeds the IMD cloudburst "
-                f"threshold (10 cm/h) — extreme flash-flood risk."
-            )
     else:
         # 24-Hour accumulation (mm/24h)
         if precip < 15.5:
             base_score = (precip / 15.5) * 3.5
-            factors.append(f"24h accumulated rainfall ({precip:.1f} mm) is light (< 15.5 mm).")
         elif precip < 64.5:
             base_score = 4.0 + ((precip - 15.5) / (64.5 - 15.5)) * 2.5
-            factors.append(f"24h accumulated rainfall ({precip:.1f} mm) is moderate (15.5 - 64.5 mm).")
         elif precip < 115.5:
             base_score = 7.0 + ((precip - 64.5) / (115.5 - 64.5)) * 1.5
-            factors.append(f"24h accumulated rainfall ({precip:.1f} mm) is heavy (64.5 - 115.5 mm).")
         else:
             base_score = 8.5 + min(1.5, ((precip - 115.5) / 50.0) * 1.5)
-            factors.append(f"24h accumulated rainfall ({precip:.1f} mm) is very heavy (> 115.5 mm).")
 
     score = base_score
 
-    # 2. Compounding Factor: Wind speed & gusts
-    # High winds combine with rain to cause downed power lines, structural risk, and drainage blockages
+    # 2. Compounding factor: wind speed & gusts
+    # High winds combine with rain to cause downed power lines, structural risk,
+    # and drainage blockages.
     if data.wind_gusts_kmh >= 65.0 or data.wind_speed_kmh >= 50.0:
-        wind_modifier = 1.5
-        score += wind_modifier
-        factors.append(
-            f"Compounding wind hazard: speed {data.wind_speed_kmh:.1f} km/h, gusts {data.wind_gusts_kmh:.1f} km/h "
-            f"(+{wind_modifier:.1f} severity due to power line / grid disruption hazard)."
-        )
+        score += 1.5
     elif data.wind_gusts_kmh >= 45.0 or data.wind_speed_kmh >= 35.0:
-        wind_modifier = 0.8
-        score += wind_modifier
-        factors.append(
-            f"Moderate wind gusts ({data.wind_gusts_kmh:.1f} km/h) compound localized storm risk (+{wind_modifier:.1f})."
-        )
+        score += 0.8
 
-    # 3. Compounding Factor: WMO Weather Code (Thunderstorms / Violent Showers)
+    # 3. Compounding factor: WMO weather code (thunderstorms / violent showers)
     if data.weather_code is not None:
-        code_desc = WMO_DESCRIPTIONS.get(data.weather_code, f"Code {data.weather_code}")
-        if data.weather_code in (95, 96, 97, 99):  # Thunderstorms
-            score = max(score + 1.0, 7.0)  # Thunderstorms elevate risk floor to HIGH
-            factors.append(f"Severe weather code: {code_desc} (WMO {data.weather_code}) imposes HIGH risk floor.")
-        elif data.weather_code == 82:  # Violent rain showers
+        if data.weather_code in (95, 96, 97, 99):  # thunderstorms
+            score = max(score + 1.0, 7.0)  # thunderstorms elevate the HIGH floor
+        elif data.weather_code == 82:  # violent rain showers
             score = max(score, 7.0)
-            factors.append("Violent rain showers (WMO 82) imposes HIGH risk floor.")
-        else:
-            factors.append(f"Weather condition: {code_desc} (WMO {data.weather_code}).")
-
-    # 4. Precipitation probability factor (if forecast uncertainty is low/high)
-    if data.precipitation_probability < 40.0 and precip > 0:
-        factors.append(f"Precipitation probability is {data.precipitation_probability:.0f}% (forecast uncertainty noted).")
 
     # Clamp severity score to [0.0, 10.0]
     final_score = round(min(10.0, max(0.0, score)), 2)
 
-    # 5. Determine SafeGrid Risk Level
+    # 4. Determine SafeGrid risk level (thresholds: docs/RISK_MODEL.md)
     if final_score >= 7.0:
         risk_level = "HIGH"
-        badge = "🔴 High Risk"
-        summary = (
-            "Severe precipitation / storm conditions. High probability of localized flooding, "
-            "waterlogging, and power grid / infrastructural disruptions."
-        )
     elif final_score >= 4.0:
         risk_level = "MODERATE"
-        badge = "🟡 Moderate / Potential Risk"
-        summary = (
-            "Moderate precipitation observed. Potential for road water accumulation, "
-            "minor drainage overflows, and localized grid stress."
-        )
     else:
         risk_level = "LOW"
-        badge = "🟢 Low Risk"
-        summary = (
-            "Light or negligible precipitation. Standard environmental conditions. "
-            "Minimal infrastructural hazard expected."
-        )
-
-    disclaimer = "Green / Low Risk indicates low hazard relative to threshold; it does NOT imply absolute safety."
 
     return PrecipitationRiskResult(
         location={"latitude": data.latitude, "longitude": data.longitude},
@@ -302,46 +185,43 @@ def calculate_precipitation_risk(data: PrecipitationInput) -> PrecipitationRiskR
         time_window=f"{window} hour(s)",
         risk_level=risk_level,
         severity_score=final_score,
-        badge=badge,
-        summary=summary,
-        factors=factors,
-        disclaimer=disclaimer,
     )
 
 
-def process_precipitation_hazard(hazard: dict[str, Any] | str | Any) -> dict[str, Any]:
+def process_precipitation_hazard(
+    hazard: dict[str, Any] | Any,
+    spec: GridSpec | None = None,
+) -> dict[str, Any]:
     """
     Primary engine function for precipitation risk calculation.
 
-    Accepts:
-    - Normalized hazard dictionary from Person 1 (ingestion layer) or Person 4 (database).
-    - String representation (JSON or literal dict string, with optional 'output :' prefix).
-    - Pydantic Hazard model.
+    Accepts a normalized hazard dictionary (from Person 1's ingestion layer or
+    Person 4's database) or a Pydantic Hazard model. String parsing is a CLI
+    concern and lives in main(); the engine takes structured input only.
 
-    Returns:
-    - Structured dictionary containing risk_level, severity_score, GeoJSON affected_area,
-      and rich metadata ready for Person 3 (Frontend / MapLibre) and Person 4 (Database).
+    The affected-area geometry is the **grid cell** containing the hazard
+    location (docs/RISK_MODEL.md § 4.1) — a square, not a severity-fabricated
+    circle. `spec` selects the grid resolution; defaults to DEFAULT_GRID_SPEC.
+
+    Returns a structured dictionary with risk_level, severity_score, GeoJSON
+    affected_area, and metadata ready for Person 3 (Frontend / MapLibre) and
+    Person 4 (Database).
     """
-    # 1. Handle string inputs (JSON, python dict literals, or terminal logs)
-    if isinstance(hazard, str):
-        cleaned = hazard.strip()
-        if cleaned.startswith("output :"):
-            cleaned = cleaned[len("output :"):].strip()
-        try:
-            data = json.loads(cleaned)
-        except Exception:
-            try:
-                data = ast.literal_eval(cleaned)
-            except Exception as exc:
-                raise ValueError(f"Could not parse input string into a dictionary: {exc}")
-    elif hasattr(hazard, "model_dump"):
+    # 1. Normalize the input into a plain dict
+    if hasattr(hazard, "model_dump"):
         data = hazard.model_dump()
     elif isinstance(hazard, dict):
         data = hazard.copy()
     else:
         data = dict(hazard)
 
-    hazard_id = str(data.get("id") or data.get("hazard_id") or "open-meteo:unknown")
+    hazard_id = data.get("id") or data.get("hazard_id")
+    if not hazard_id:
+        raise ValueError(
+            "hazard id is required (neither 'id' nor 'hazard_id' provided)"
+        )
+    hazard_id = str(hazard_id)
+    # Open-Meteo is SafeGrid's sole ingestion source, so this default is safe.
     source = str(data.get("source") or "open_meteo")
 
     # 2. Timestamp extraction
@@ -353,19 +233,26 @@ def process_precipitation_hazard(hazard: dict[str, Any] | str | Any) -> dict[str
     else:
         time_str = datetime.now(timezone.utc).isoformat()
 
-    # 3. Coordinate extraction with fallback to GeoJSON location
+    # 3. Coordinate extraction from explicit lat/lon or a GeoJSON location.
+    #    No (0, 0) fallback: missing coordinates fail loud rather than placing a
+    #    fabricated zone in the Gulf of Guinea.
     lat = data.get("latitude")
     lon = data.get("longitude")
     if lat is None or lon is None:
         loc = data.get("location")
+        coords = None
         if isinstance(loc, dict):
-            coords = loc.get("coordinates", [0.0, 0.0])
-            lon, lat = coords[0], coords[1]
+            coords = loc.get("coordinates")
         elif hasattr(loc, "coordinates"):
             coords = loc.coordinates
-            lon, lat = coords[0], coords[1]
-    latitude = float(lat if lat is not None else 0.0)
-    longitude = float(lon if lon is not None else 0.0)
+        if not coords or len(coords) < 2:
+            raise ValueError(
+                "hazard coordinates are required "
+                "(latitude/longitude or location.coordinates)"
+            )
+        lon, lat = coords[0], coords[1]
+    latitude = float(lat)
+    longitude = float(lon)
 
     # 4. Specific data extraction (handles raw dict or JSON string from DB)
     specific = data.get("specific_data")
@@ -384,7 +271,7 @@ def process_precipitation_hazard(hazard: dict[str, Any] | str | Any) -> dict[str
     precip_mm = max(0.0, float(precip_mm if precip_mm is not None else 0.0))
 
     # 6. Time window (hours)
-    window = specific.get("time_window_hours") or data.get("time_window_hours") or data.get("duration") or 1
+    window = specific.get("time_window_hours") or data.get("time_window_hours") or 1
     if isinstance(window, str):
         digits = "".join(c for c in window if c.isdigit())
         window_int = int(digits) if digits else 1
@@ -407,18 +294,19 @@ def process_precipitation_hazard(hazard: dict[str, Any] | str | Any) -> dict[str
         except (ValueError, TypeError):
             wmo_code = None
 
+    # Probability is a percentage (0-100) across providers. Treat every value as
+    # a percentage and clamp it — never guess a 0-1 fraction (that misreads a
+    # genuine 1% as 100%).
     prob = data.get("probability")
     if prob is None:
-        prob = specific.get("precipitation_probability") or data.get("precipitation_probability")
-    if prob is not None:
-        try:
-            prob_float = float(prob)
-            if 0.0 < prob_float <= 1.0:
-                prob_float *= 100.0
-        except (ValueError, TypeError):
-            prob_float = 100.0
-    else:
+        prob = specific.get("precipitation_probability")
+    if prob is None:
+        prob = data.get("precipitation_probability")
+    try:
+        prob_float = float(prob)
+    except (TypeError, ValueError):
         prob_float = 100.0
+    prob_float = min(100.0, max(0.0, prob_float))
 
     # 8. Build typed input and compute risk
     calc_input = PrecipitationInput(
@@ -434,18 +322,18 @@ def process_precipitation_hazard(hazard: dict[str, Any] | str | Any) -> dict[str
     )
     result = calculate_precipitation_risk(calc_input)
 
-    # 9. Compute GeoJSON affected area polygon
-    affected_area = compute_rainfall_polygon(latitude, longitude, result.severity_score)
+    # 9. Affected area = the grid cell containing the hazard location (square).
+    grid_spec = spec or DEFAULT_GRID_SPEC
+    affected_area = cell_at(grid_spec, latitude, longitude).polygon()
 
     calc_now = datetime.now(timezone.utc).isoformat()
     notes = (
         f"Precipitation: {result.precipitation_mm:.1f} mm ({result.time_window}). "
-        f"Score: {result.severity_score:.2f}/10. {result.summary}"
+        f"Score: {result.severity_score:.2f}/10."
     )
 
     # 10. Formulate final output dictionary for Person 3 (Frontend) & Person 4 (Database)
     return {
-        "id": hazard_id,
         "hazard_id": hazard_id,
         "hazard_type": "rainfall",
         "source": source,
@@ -454,12 +342,8 @@ def process_precipitation_hazard(hazard: dict[str, Any] | str | Any) -> dict[str
         "longitude": longitude,
         "risk_level": result.risk_level,
         "severity_score": result.severity_score,
-        "badge": result.badge,
         "calculated_at": calc_now,
         "affected_area": affected_area,
-        "summary": result.summary,
-        "factors": result.factors,
-        "disclaimer": result.disclaimer,
         "notes": notes,
     }
 
@@ -484,7 +368,11 @@ def main() -> None:
             raw_input = piped
 
     if raw_input:
-        output = process_precipitation_hazard(raw_input)
+        try:
+            parsed = json.loads(raw_input)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"Could not parse input as JSON: {exc}")
+        output = process_precipitation_hazard(parsed)
     else:
         # Default representative payload from Open-Meteo ingestion pipeline
         hazard_data = {
@@ -496,7 +384,6 @@ def main() -> None:
             'longitude': 77.5946,
             'magnitude': None,
             'probability': 0.0,
-            'duration': None,
             'specific_data': {'precipitation_mm': 0.0},
             'created_at': '2026-10-08T05:21:21.446033+00:00',
         }
