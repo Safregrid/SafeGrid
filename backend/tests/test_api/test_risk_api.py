@@ -9,6 +9,9 @@ exercising P2's scoring, P4's writer and the endpoint for real.
 
 from datetime import datetime, timedelta, timezone
 
+import asyncio
+
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -252,3 +255,118 @@ def test_on_demand_failure_degrades_to_no_data_not_a_500(
 
     assert response.status_code == 200
     assert response.json()["reason"] == "no_data"
+
+
+# --- stale cells are re-measured, not served as if they were current ----------
+
+
+def test_a_stale_cell_is_rescored_and_the_fresh_answer_is_served(
+    client, grid_db, pilot_region, monkeypatch
+):
+    """
+    A square whose rating has aged past the TTL must be measured again.
+
+    Serving it unchanged would claim "this is calm now" on the strength of a
+    three-hour-old measurement - the same error as calling an unscored square
+    LOW, only slower.
+    """
+    monkeypatch.setattr(settings, "grid_score_on_demand", True)
+    stale = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+    _score_and_store(*INSIDE_POINT, grid_db, generated_at=stale)
+
+    calls: list[tuple[float, float]] = []
+
+    async def fake_score(spec, latitude, longitude):
+        calls.append((latitude, longitude))
+        _score_and_store(latitude, longitude, grid_db)
+        return _get_grid_cell(cell_id_at(spec, latitude, longitude), database=grid_db)
+
+    monkeypatch.setattr(risk_api, "score_cell_on_demand", fake_score)
+
+    body = client.get(
+        "/api/risk", params={"lat": INSIDE_POINT[0], "lon": INSIDE_POINT[1]}
+    ).json()
+
+    assert calls == [INSIDE_POINT]
+    assert body["reason"] is None
+    assert body["is_live"] is True
+    assert body["generated_at"] != stale
+
+
+def test_a_failed_refresh_keeps_the_stale_rating_rather_than_no_data(
+    client, grid_db, pilot_region, monkeypatch
+):
+    """
+    A provider outage must not throw away the last rating we hold.
+
+    "No data" is the honest answer when we have nothing. It is a worse answer
+    than the truth when we hold a real earlier measurement, so a failed
+    refresh falls back to the stale cell and lets the client see `is_live:
+    false` rather than losing the rating entirely.
+    """
+    monkeypatch.setattr(settings, "grid_score_on_demand", True)
+    stale = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+    snapshot = _score_and_store(*INSIDE_POINT, grid_db, generated_at=stale)
+
+    calls: list[tuple[float, float]] = []
+
+    async def boom(spec, latitude, longitude):
+        calls.append((latitude, longitude))
+        raise RuntimeError("weather API down")
+
+    monkeypatch.setattr(risk_api, "score_cell_on_demand", boom)
+
+    body = client.get(
+        "/api/risk", params={"lat": INSIDE_POINT[0], "lon": INSIDE_POINT[1]}
+    ).json()
+
+    # The stale square was re-measured...
+    assert calls == [INSIDE_POINT]
+    # ...the re-measure failed, and the earlier rating survived it.
+    assert body["in_coverage"] is True
+    assert body["reason"] is None
+    assert body["is_live"] is False
+    assert body["generated_at"] == stale
+    assert body["risk_level"] == snapshot.cells[body["cell_id"]].risk_level
+
+
+async def test_simultaneous_questions_about_one_square_cause_one_fetch(
+    grid_db, pilot_region, monkeypatch
+):
+    """
+    A burst of questions must not turn one square into many weather requests.
+
+    Five requests arrive together. The first scores and stores the square; the
+    others wait for it and read the stored result, so the provider is asked
+    once and every caller gets the same answer.
+    """
+    monkeypatch.setattr(settings, "grid_score_on_demand", True)
+    calls: list[tuple[float, float]] = []
+
+    async def slow_score(spec, latitude, longitude):
+        calls.append((latitude, longitude))
+        await asyncio.sleep(0.05)  # the window a real provider call occupies
+        _score_and_store(latitude, longitude, grid_db)
+        return _get_grid_cell(cell_id_at(spec, latitude, longitude), database=grid_db)
+
+    monkeypatch.setattr(risk_api, "score_cell_on_demand", slow_score)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        responses = await asyncio.gather(
+            *(
+                http.get(
+                    "/api/risk",
+                    params={"lat": INSIDE_POINT[0], "lon": INSIDE_POINT[1]},
+                )
+                for _ in range(5)
+            )
+        )
+
+    bodies = [response.json() for response in responses]
+
+    assert len(calls) == 1
+    assert all(body["reason"] is None for body in bodies)
+    assert all(body["is_live"] is True for body in bodies)
+    assert len({body["cell_id"] for body in bodies}) == 1
+

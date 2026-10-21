@@ -161,6 +161,23 @@ Disable with the `grid_score_on_demand` setting. (A public deployment must
 rate-limit this first: it is an unauthenticated endpoint that triggers outbound
 HTTP. For a single-campus deployment this is not a concern.)
 
+**A stale square is re-scored on demand too.** A stored cell whose
+`generated_at` is older than the grid TTL (3 h) is measured again before it is
+served, for the same reason: *"we last measured this three hours ago"* and
+*"this is calm right now"* are different claims, and only the second one is
+evidence. The cost is the same — about a second — paid at most once per TTL
+window per square, because the refreshed cell is stored.
+
+If that refresh fails (the provider is down), the endpoint **keeps the stale
+cell** and serves it with `is_live: false`. A failed refresh never turns a
+known rating into `no_data`: `no_data` is the honest answer when we hold
+nothing, and a worse answer than the truth when we hold a real earlier
+measurement.
+
+Only one fetch per square runs at a time. Simultaneous questions about the
+same square wait for the first one and then read its stored result, so a burst
+of traffic cannot turn one square into many weather requests.
+
 Both `lat` and `lon` are required. Out-of-range values return `422`.
 
 **Exactly three states.** These are deliberately not collapsed into a risk level:
@@ -284,4 +301,5 @@ Responses include `is_live: false` when data is served from cached or last-known
 | 2026-10-19 | Implemented `GET /api/risk?lat=&lon=` per the `docs/OFFLINE.md` contract: reads `grid_cells`, three states (`outside_coverage` / `no_data` / scored), `is_live` derived from `generated_at` | Person 1 |
 | 2026-10-19 | Coverage now follows the data, not the configured box: a stored cell is served even outside the current region, so one running server answers for many places. `outside_coverage` now means "no cell scored here and outside the region". **Contract change — flagged to Person 4** | Person 1 |
 | 2026-10-19 | Unscored squares are now scored **on demand** (fetch → score → store → serve) instead of answering `no_data`; new `grid_score_on_demand` setting (off in tests). Provider failure degrades to `no_data`, never a `500`. Still exactly three `reason` states | Person 1 |
+| 2026-10-21 | A **stale** square is re-scored on demand as well, instead of being served as if it were current (a rating older than the 3 h TTL is measured again). A failed refresh keeps the stale cell (`is_live: false`) rather than degrading to `no_data`; concurrent questions about one square cause a single fetch. Still exactly three `reason` states and the same response shape | Person 1 |
 

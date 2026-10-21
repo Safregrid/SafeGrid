@@ -180,6 +180,10 @@ location can be answered instantly from a snapshot.
   answering, so a place the runner never visited is still answerable later. The score
   itself is unchanged — same `score_grid()`, sampled at the cell centre — so an
   on-demand cell and a run-time cell are identical.)*
+  *(2026-10-21, Person 1: the same applies to a cell that has aged out — the API
+  re-scores a **stale** cell before serving it, rather than presenting a three-hour-old
+  measurement as a current one. No band, threshold or severity value changed: it is the
+  same `score_grid()` on the same inputs, asked more often.)*
 - **Output shape.** Per cell the model stores `risk_level`, `severity_score`, the cell
   polygon, and `computed_at`. The **user-facing answer returns all four** —
   `risk_level` + `severity_score` + cell polygon + `computed_at` — and leaves it to the
@@ -447,3 +451,4 @@ Proposed mapping (severity 0.0–10.0), to be confirmed with the GMPE:
 | 2026-10-15 | Rain geometry switched to the grid: § 4 rewritten — rainfall affected area = the grid cell (square), `compute_rainfall_polygon` removed, no circle fallback; circles are earthquake-only (§ 12). Decision 2 closed | Person 2 |
 | 2026-10-19 | § 4.1: documented how a region is chosen — a granted location becomes a box either explicitly or via a **declared coverage radius** (`region_around(lat, lon, radius_km)`), centre winning when both are set. Radius is a coverage parameter, not a risk threshold; it yields the **bounding box of square cells, never a circle** (§ 4 rule respected). Village boundaries deliberately unused: OSM outlines are too patchy across rural Karnataka to trust, and a wrong outline would score the wrong ground while looking authoritative | Person 1 |
 | 2026-10-19 | § 4.1: noted that serving may **score an unstored square on demand** (same `score_grid()`, sampled at the cell centre) so a snapshot lookup is no longer the only path to an answer. No thresholds, bands or severity scale changed | Person 1 |
+| 2026-10-21 | § 4.1: serving may now also **re-score a stale square** on demand, not only an unstored one — a rating older than the TTL is measured again before it is presented, because a three-hour-old measurement is not a current one. A failed re-score keeps the previous rating (shown as stale) rather than reporting `no_data`. No thresholds, bands or severity scale changed | Person 1 |
