@@ -160,6 +160,13 @@ export function updateRiskZones(map, geojson) {
   if (elHigh) elHigh.textContent = highCount;
   if (elMod) elMod.textContent = modCount;
   if (elLow) elLow.textContent = lowCount;
+
+  const mapElHigh = document.getElementById('map-count-high');
+  const mapElMod = document.getElementById('map-count-moderate');
+  const mapElLow = document.getElementById('map-count-low');
+  if (mapElHigh) mapElHigh.textContent = highCount;
+  if (mapElMod) mapElMod.textContent = modCount;
+  if (mapElLow) mapElLow.textContent = lowCount;
 }
 
 /**

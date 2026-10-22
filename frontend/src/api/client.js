@@ -38,3 +38,16 @@ export async function fetchRiskZones() {
   }
   return await response.json();
 }
+
+/**
+ * Fetches risk assessment at a specific coordinate from the regional grid.
+ * Contract: GET /api/risk?lat=&lon= -> { in_coverage, reason, risk_level, ... }
+ * Throws on failure without fabricating or guessing a zone.
+ */
+export async function fetchRiskAtPoint(lat, lon) {
+  const response = await fetch(`${BASE_URL}/risk?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch risk at point: ${response.status}`);
+  }
+  return await response.json();
+}
