@@ -2,66 +2,334 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="SafeGrid — academic disaster preparedness platform and geographic risk visualization" />
-    <title>SafeGrid — Disaster Preparedness & Risk Visualization</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="SafeGrid — disaster preparedness and geographic risk visualization dashboard" />
+    <title>SafeGrid — Disaster Preparedness Dashboard</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app">
-      <!-- Academic Project Header -->
-      <header class="gov-header">
-        <div class="gov-title-container">
-          <div class="gov-emblem">🛡️</div>
+      <!-- Academic Project Header with Navigation Tabs -->
+      <header class="app-header">
+        <div class="header-brand">
+          <span class="brand-emblem">🛡️</span>
           <div>
-            <h1 class="gov-title">SafeGrid — Hazard Risk Map</h1>
-            <p class="gov-subtitle">Academic Disaster Preparedness Platform</p>
+            <h1 class="brand-title">SafeGrid</h1>
+            <p class="brand-subtitle">Academic Disaster Preparedness Platform</p>
           </div>
         </div>
-        <div class="gov-meta">
+
+        <!-- Top Navigation Tabs (Home & Map) -->
+        <nav class="nav-tabs" aria-label="Main Navigation">
+          <button id="tab-home" class="tab-btn active" type="button" aria-controls="view-home" aria-selected="true">
+            <span class="tab-icon">🏠</span> Home
+          </button>
+          <button id="tab-map" class="tab-btn" type="button" aria-controls="view-map" aria-selected="false">
+            <span class="tab-icon">🗺️</span> Map
+          </button>
+        </nav>
+
+        <div class="header-meta">
           <span id="connection-status" class="system-status cached">
             <span class="status-dot"></span> <span id="status-text">CONNECTING...</span>
           </span>
-          <a href="http://localhost:8000/docs" target="_blank" class="api-docs-link">Backend API Docs</a>
         </div>
       </header>
 
-      <!-- Main Portal Dashboard & Map Area -->
-      <div class="dashboard-body">
-        <!-- Fullscreen Map Base -->
-        <div id="map"></div>
+      <!-- Main Body: Home Dashboard View & Map View -->
+      <main class="main-content">
+        <!-- VIEW 1: HOME DASHBOARD (Default) -->
+        <section id="view-home" class="dashboard-view active" aria-labelledby="tab-home">
+          <div class="dashboard-container">
+            <!-- Big Area Status Card -->
+            <div id="user-zone-card" class="zone-card zone-unknown">
+              <div class="zone-card-header">
+                <span class="zone-label">YOUR LOCATION STATUS</span>
+                <span id="zone-freshness-pill" class="badge-pill cached">
+                  <span class="status-dot"></span> <span id="zone-freshness-text">Detecting...</span>
+                </span>
+              </div>
 
-        <!-- Overlaid Control Panel -->
-        <aside class="control-panel">
-          <div class="panel-section">
-            <h2 class="panel-heading">Active Risk Zones</h2>
-            <div class="threat-counters">
-              <div class="counter-card high">
-                <span class="counter-num" id="count-high">0</span>
-                <span class="counter-label">HIGH RISK</span>
+              <div class="zone-headline">
+                <span id="zone-icon" class="zone-big-icon">⚪</span>
+                <div>
+                  <h2 id="zone-title" class="zone-title">ZONE UNKNOWN</h2>
+                  <p id="zone-meaning" class="zone-meaning">Requesting location to assess regional hazard risk...</p>
+                </div>
               </div>
-              <div class="counter-card moderate">
-                <span class="counter-num" id="count-moderate">0</span>
-                <span class="counter-label">MODERATE</span>
+
+              <!-- Location & Assessment Metadata -->
+              <div class="zone-meta-grid">
+                <div class="meta-item">
+                  <span class="meta-label">COORDINATES</span>
+                  <span id="user-coords-text" class="meta-value">Waiting for GPS...</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">SEVERITY SCORE</span>
+                  <span id="zone-score-text" class="meta-value">—</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">ASSESSED AT</span>
+                  <span id="zone-timestamp-text" class="meta-value">—</span>
+                </div>
               </div>
-              <div class="counter-card low">
-                <span class="counter-num" id="count-low">0</span>
-                <span class="counter-label">LOW RISK</span>
+
+              <div class="zone-card-actions">
+                <button id="btn-detect-location" class="action-btn-secondary" type="button">
+                  📍 Detect / Refresh Location
+                </button>
+                <button id="btn-goto-map" class="action-btn-primary" type="button">
+                  🗺️ Inspect Risk on Map ➔
+                </button>
+              </div>
+            </div>
+
+            <!-- Regional Active Hazards Overview Card -->
+            <div class="summary-card">
+              <h3 class="card-heading">Regional Risk Overview</h3>
+              <p class="card-subtext">Calculated zones and active weather/seismic feeds from backend models:</p>
+              <div class="threat-counters">
+                <div class="counter-card high">
+                  <span class="counter-num" id="count-high">0</span>
+                  <span class="counter-label">HIGH RISK</span>
+                </div>
+                <div class="counter-card moderate">
+                  <span class="counter-num" id="count-moderate">0</span>
+                  <span class="counter-label">MODERATE</span>
+                </div>
+                <div class="counter-card low">
+                  <span class="counter-num" id="count-low">0</span>
+                  <span class="counter-label">LOW RISK</span>
+                </div>
+              </div>
+              <div id="dashboard-hazard-summary" class="hazard-summary-list">
+                <p class="summary-empty">Loading active hazard telemetry...</p>
+              </div>
+            </div>
+
+            <!-- Academic & Safety Honesty Banner -->
+            <div class="academic-disclaimer-card">
+              <span class="disclaimer-icon">ℹ️</span>
+              <div class="disclaimer-text">
+                <strong>Academic Prototype Notice:</strong> SafeGrid is an academic research platform and is NOT a certified government warning service. 
+                <span class="disclaimer-highlight">A "LOW" zone does NOT mean safe.</span> Always heed official guidance from local disaster management authorities.
               </div>
             </div>
           </div>
+        </section>
 
-          <div class="panel-section">
-            <h3 class="section-title">Hazard Information Feed</h3>
-            <div id="hazard-details-card" class="details-card">
-              <p class="details-placeholder">Click any marker or risk zone on the map to inspect hazard data.</p>
+        <!-- VIEW 2: MAP VIEW -->
+        <section id="view-map" class="map-view" aria-labelledby="tab-map">
+          <!-- Fullscreen Map Base -->
+          <div id="map"></div>
+
+          <!-- Overlaid Map Control Panel -->
+          <aside class="control-panel">
+            <div class="panel-section">
+              <h2 class="panel-heading">Active Risk Zones</h2>
+              <div class="threat-counters mini">
+                <div class="counter-card high">
+                  <span class="counter-num" id="map-count-high">0</span>
+                  <span class="counter-label">HIGH</span>
+                </div>
+                <div class="counter-card moderate">
+                  <span class="counter-num" id="map-count-moderate">0</span>
+                  <span class="counter-label">MOD</span>
+                </div>
+                <div class="counter-card low">
+                  <span class="counter-num" id="map-count-low">0</span>
+                  <span class="counter-label">LOW</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <h3 class="section-title">Hazard Information Feed</h3>
+              <div id="hazard-details-card" class="details-card">
+                <p class="details-placeholder">Click any marker or risk zone on the map to inspect hazard data.</p>
+              </div>
+            </div>
+
+            <div class="panel-footer">
+              <p class="footer-note">Academic Project | Not a certified emergency service | LOW risk does not imply safety</p>
+            </div>
+          </aside>
+        </section>
+      </main>
+
+      <!-- Bottom Quick-Action Bar for Phone Access -->
+      <nav class="bottom-action-bar" aria-label="Emergency Actions">
+        <button id="btn-sos-trigger" class="bottom-btn btn-sos disabled" type="button" aria-haspopup="dialog" aria-expanded="false" disabled>
+          <span class="btn-icon">🆘</span>
+          <span class="btn-text">
+            <strong>Emergency SOS</strong>
+            <small id="sos-btn-hint">Active in Red/Yellow Zone</small>
+          </span>
+        </button>
+
+        <button id="btn-guidelines-trigger" class="bottom-btn btn-guidelines" type="button" aria-haspopup="dialog" aria-expanded="false">
+          <span class="btn-icon">📋</span>
+          <span class="btn-text">
+            <strong>Safety Guidelines</strong>
+            <small>NDMA & IMD Protocols</small>
+          </span>
+        </button>
+      </nav>
+
+      <!-- MODAL 1: SOS INFO CARD -->
+      <div id="modal-sos" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="sos-modal-title" hidden>
+        <div class="modal-card">
+          <div class="modal-header">
+            <div class="modal-title-wrap">
+              <span class="modal-badge-icon">🆘</span>
+              <div>
+                <h3 id="sos-modal-title" class="modal-title">Emergency Location Card</h3>
+                <p class="modal-subtitle">Display to nearby responders or send to emergency contacts</p>
+              </div>
+            </div>
+            <button id="btn-close-sos" class="close-btn" type="button" aria-label="Close SOS Modal">✕</button>
+          </div>
+
+          <div class="modal-body">
+            <div id="sos-status-box" class="sos-card-content">
+              <div class="sos-zone-row">
+                <span class="sos-label">CURRENT ASSESSED HAZARD ZONE</span>
+                <span id="sos-zone-display" class="sos-zone-pill high">🔴 HIGH RISK (RED)</span>
+              </div>
+
+              <div class="sos-coords-box">
+                <span class="sos-label">EXACT GPS COORDINATES</span>
+                <p id="sos-coords-display" class="sos-coords-large">12.9716° N, 77.5946° E</p>
+                <small id="sos-accuracy-display" class="sos-accuracy">GPS Accuracy: ±15m</small>
+              </div>
+
+              <div class="sos-time-row">
+                <span class="sos-label">ASSESSMENT TIMESTAMP</span>
+                <span id="sos-timestamp-display" class="sos-timestamp">--</span>
+              </div>
+            </div>
+
+            <!-- Action Buttons for SOS -->
+            <div class="sos-actions">
+              <button id="btn-share-sos" class="sos-btn-share" type="button">
+                📋 Copy / Share Emergency SMS
+              </button>
+              <div id="sos-copy-toast" class="copy-toast" hidden>✓ Copied emergency message to clipboard!</div>
+
+              <div class="dialer-action-wrap">
+                <a id="link-dial-112" href="tel:112" class="call-112-btn">
+                  📞 Call 112 (Open Phone Emergency Dialer)
+                </a>
+                <p class="dialer-note">
+                  * Opens your phone's native phone app to call <strong>112</strong> (National Emergency Helpline). This uses your phone's cellular network, not SafeGrid.
+                </p>
+              </div>
+            </div>
+
+            <!-- Safety Notice -->
+            <div class="sos-disclaimer">
+              <p><strong>⚠️ Non-Dispatch Notice:</strong> SafeGrid is an academic tool. It does <em>not</em> dispatch emergency response teams or notify emergency authorities automatically.</p>
+              <p><strong>Offline Notice:</strong> This SOS info remains viewable offline. Messages will be transmitted when mobile network reception is available.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL 2: SAFETY GUIDELINES -->
+      <div id="modal-guidelines" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="guidelines-modal-title" hidden>
+        <div class="modal-card guidelines-card">
+          <div class="modal-header">
+            <div class="modal-title-wrap">
+              <span class="modal-badge-icon">📋</span>
+              <div>
+                <h3 id="guidelines-modal-title" class="modal-title">Disaster Safety Guidelines</h3>
+                <p class="modal-subtitle">Official Sourced Protocols (NDMA / IMD)</p>
+              </div>
+            </div>
+            <div class="modal-actions-right">
+              <button id="btn-print-guidelines" class="print-btn" type="button" title="Save as PDF or Print">
+                📄 Print / Save PDF
+              </button>
+              <button id="btn-close-guidelines" class="close-btn" type="button" aria-label="Close Guidelines Modal">✕</button>
             </div>
           </div>
 
-          <div class="panel-footer">
-            <p class="footer-note">Academic Project | Not a certified emergency service | LOW risk does not imply safety</p>
+          <div class="modal-body guidelines-body">
+            <!-- Guidelines Tabs -->
+            <div class="guidelines-tab-nav" role="tablist">
+              <button class="g-tab-btn active" type="button" data-target="guide-zone">Your Zone Action</button>
+              <button class="g-tab-btn" type="button" data-target="guide-flood">Floods & Rain</button>
+              <button class="g-tab-btn" type="button" data-target="guide-quake">Earthquake</button>
+              <button class="g-tab-btn" type="button" data-target="guide-cyclone">Severe Weather</button>
+            </div>
+
+            <!-- Tab Content 1: Current Zone Specific Actions -->
+            <div id="guide-zone" class="guide-panel active">
+              <h4 class="guide-panel-title">What to do in your assessed zone:</h4>
+              <div class="zone-instruction red">
+                <h5>🔴 Red Zone (High Risk) Protocol</h5>
+                <ul>
+                  <li><strong>Evacuation Readiness:</strong> If local authorities issue an evacuation order, evacuate immediately along designated routes.</li>
+                  <li><strong>Shelter:</strong> Move to designated high ground or cyclone/flood shelters. Avoid basements and low-lying ground.</li>
+                  <li><strong>Utilities:</strong> Turn off main electrical switches and cooking gas cylinders before leaving.</li>
+                  <li><strong>Emergency Kit:</strong> Keep go-bag ready (drinking water, medicines, torch, dry food, power bank).</li>
+                </ul>
+              </div>
+              <div class="zone-instruction yellow">
+                <h5>🟡 Yellow Zone (Moderate Risk) Protocol</h5>
+                <ul>
+                  <li><strong>Monitor Alerts:</strong> Keep tuned to official IMD/NDMA radio, TV, or weather channels.</li>
+                  <li><strong>Avoid Vulnerable Paths:</strong> Do not drive or walk through waterlogged underpasses or overflowing culverts.</li>
+                  <li><strong>Secure Property:</strong> Anchor outdoor loose items; check drainage openings around home.</li>
+                </ul>
+              </div>
+              <div class="zone-instruction green">
+                <h5>🟢 Green Zone (Low Risk) Protocol</h5>
+                <ul>
+                  <li><strong>Maintain Preparedness:</strong> Check emergency supplies and first aid items.</li>
+                  <li><strong>Crucial:</strong> Low risk does not mean safe. Changing weather can rapidly shift hazard zones.</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Tab Content 2: Floods & Heavy Rain -->
+            <div id="guide-flood" class="guide-panel">
+              <h4 class="guide-panel-title">Flood & Heavy Precipitation Safety (IMD / NDMA)</h4>
+              <ul class="guide-checklist">
+                <li><strong>Turn Around, Don't Drown:</strong> Just 15 cm (6 in) of moving water can knock an adult down, and 30 cm (1 ft) can float a vehicle.</li>
+                <li><strong>Electrical Safety:</strong> Never touch downed power poles, electrical wires, or wet appliances.</li>
+                <li><strong>Safe Drinking Water:</strong> Drink only boiled or chlorinated water. Flood waters carry dangerous contaminants.</li>
+                <li><strong>Livestock & Pets:</strong> Untie animals so they have a chance to swim to safety if waters rise.</li>
+              </ul>
+            </div>
+
+            <!-- Tab Content 3: Earthquake -->
+            <div id="guide-quake" class="guide-panel">
+              <h4 class="guide-panel-title">Earthquake Safety (NDMA Protocol)</h4>
+              <ul class="guide-checklist">
+                <li><strong>DROP, COVER, AND HOLD ON:</strong> Drop onto hands and knees, cover head and neck under sturdy desk or table, and hold on until shaking stops.</li>
+                <li><strong>Stay Indoors:</strong> Do not rush to exits. Stay away from glass windows, exterior walls, and heavy light fixtures.</li>
+                <li><strong>Never Use Elevators:</strong> Power may fail; use stairwells once shaking ends.</li>
+                <li><strong>If Outdoors:</strong> Move into clear open spaces away from buildings, overhead cables, and chimney stacks.</li>
+              </ul>
+            </div>
+
+            <!-- Tab Content 4: Severe Weather / Cyclone -->
+            <div id="guide-cyclone" class="guide-panel">
+              <h4 class="guide-panel-title">Cyclone & High Wind Safety (IMD Protocol)</h4>
+              <ul class="guide-checklist">
+                <li><strong>Stay Inside:</strong> Remain indoors on the lowest floor in an interior room without exterior windows.</li>
+                <li><strong>Beware of the Eye of the Storm:</strong> If the wind suddenly dies down, the cyclone eye may be passing. Extreme winds will resume shortly from the opposite direction.</li>
+                <li><strong>Unplug Electronics:</strong> Disconnect non-essential electronics to protect against lightning surges.</li>
+              </ul>
+            </div>
+
+            <div class="guidelines-citation">
+              <strong>Official Sourced References:</strong>
+              <p>National Disaster Management Authority (NDMA), Government of India Guidelines (<a href="https://ndma.gov.in" target="_blank" rel="noopener">ndma.gov.in</a>) and India Meteorological Department (IMD) Standard Operating Procedures for Disaster Management.</p>
+            </div>
           </div>
-        </aside>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.js"></script>

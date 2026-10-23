@@ -40,12 +40,12 @@ export async function fetchRiskZones() {
 }
 
 /**
- * Fetches risk at a single coordinate from the regional grid.
+ * Fetches risk assessment at a specific coordinate from the regional grid.
  * Contract: GET /api/risk?lat=&lon= -> { in_coverage, reason, risk_level, ... }
- * Throws on failure without fabricating a zone.
+ * Throws on failure without fabricating or guessing a zone.
  */
 export async function fetchRiskAtPoint(lat, lon) {
-  const response = await fetch(`${BASE_URL}/risk?lat=${lat}&lon=${lon}`);
+  const response = await fetch(`${BASE_URL}/risk?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
   if (!response.ok) {
     throw new Error(`Failed to fetch risk at point: ${response.status}`);
   }
