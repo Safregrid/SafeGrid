@@ -5,6 +5,17 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: "autoUpdate",
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "service-worker.js",
+      injectRegister: false,
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+      },
+      devOptions: {
+        enabled: true,
+        type: "module",
+      },
       manifest: {
         name: "SafeGrid",
         short_name: "SafeGrid",
@@ -13,23 +24,6 @@ export default defineConfig({
         background_color: "#1a1a2e",
         display: "standalone",
         start_url: "/",
-        icons: [
-          {
-            src: "icons/icon-192.png",
-            sizes: "192x192",
-            type: "image/png",
-          },
-          {
-            src: "icons/icon-512.png",
-            sizes: "512x512",
-            type: "image/png",
-          },
-        ],
-      },
-      workbox: {
-        // Person 4 configures caching strategies here.
-        // See docs/OFFLINE.md for the offline strategy decisions.
-        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
       },
     }),
   ],
@@ -37,6 +31,20 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Proxy /api to the FastAPI backend during development
+      "/api": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/health": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+    },
+  },
+  preview: {
+    port: 4173,
+    proxy: {
+      // Same proxy for `npm run preview` so the built PWA can reach the API.
       "/api": {
         target: "http://localhost:8000",
         changeOrigin: true,

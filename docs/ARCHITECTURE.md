@@ -1,6 +1,6 @@
 # SafeGrid — Architecture
 
-> Last updated: 2026-10-06
+> Last updated: 2026-10-17
 > Status: initial scaffold — decisions are recorded as DECIDED or OPEN.
 
 ---
@@ -241,5 +241,10 @@ See `docs/OFFLINE.md`.
 | 2026-10-07 | Shared Hazard model alignment | `raw_magnitude` / `raw_values` | `magnitude`, `probability`, `specific_data` | Standardized model for Person 1 & Person 2 |
 | 2026-10-08 | Field cleanup | `duration` field included | `duration` field removed | Ingestion providers do not output reliable duration window |
 | 2026-10-09 | 3-Tier Domain Architecture | Direct Ingestion → Hazard | Ingestion → DataRecord → Hazard Identification → RiskResult | Avoid conflating routine weather forecasts with active hazards |
+| 2026-10-13 | Risk zone API wired | `/api/risk-zones` stub | Endpoint serves persisted `RiskResult` rows as GeoJSON; engine runs at ingestion via `pipeline.py` | Complete the risk-engine -> API -> map vertical slice |
+| 2026-10-17 | Regional risk grid storage | Grid cells had no home | New `grid_cells` table (cell ≠ hazard event); `is_live` derived from `generated_at` | Standing regional grid (§ RISK_MODEL 4.1) cannot share the `hazard_id`-keyed `risk_results` schema |
+| 2026-10-19 | Grid runner, scheduler and point lookup wired | `score_grid()` existed but nothing fetched, stored or served it | `run_grid()` orchestrates fetch → group → score → store; FastAPI lifespan refreshes it every `grid_run_minutes` (120, below P4's 3h TTL); `GET /api/risk?lat=&lon=` serves `grid_cells` | A capability with no trigger is invisible: `grid_cells` stayed at 0 rows and went stale after 3h. Cells still bypass `pipeline.evaluate_and_store()` — a cell never becomes a hazard |
+| 2026-10-19 | Location → region | A region could only be an explicit 4-coordinate bbox, which a user cannot supply | `region_around(lat, lon, radius_km)` derives a bbox from a granted point; optional `grid_center_lat`/`grid_center_lon` + `grid_radius_km` in config; `grid_run` also takes `--lat --lon --radius-km` | "I live in <village>" becomes answerable without editing config. The radius yields a bounding box of squares, so § 4's no-circles rule holds |
+| 2026-10-19 | Coverage follows the data | `/api/risk` refused any point outside the configured bbox, even when a scored cell existed for it | A stored cell now outranks the config box; `outside_coverage` requires *both* no stored cell *and* being out of region | Coverage is a fact about what was scored, not about what the config currently names. One running server can answer for many places without restarting. **Contract change, flagged to Person 4** |
 
 When a major architectural decision changes, add a row here and update relevant sections.

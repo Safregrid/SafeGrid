@@ -28,6 +28,15 @@ test: add unit tests for magnitude classifier
 
 Keep commits focused. One logical change per commit.
 
+## Work log
+
+`docs/WORKLOG.md` is a running, append-only log of what the team built and **why**, kept for the academic report. Git history records *what* changed; the work log records the reasoning, decisions and blockers behind it.
+
+- Add a dated entry for each working session, **newest on top**.
+- Record decisions and rationale — not a restatement of commits (link hashes instead).
+- Commit the entry as part of the PR that did the work.
+- Per-subsystem detail (e.g. `backend/app/risk/session_log.md`) stays in that subsystem; the work log is the cross-team summary.
+
 ## Definition of done
 
 A task is done when:

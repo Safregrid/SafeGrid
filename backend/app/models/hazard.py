@@ -33,7 +33,7 @@ class Hazard(BaseModel):
 
     Fields agreed with Person 1 on 2026-10-07:
     - magnitude: numeric strength (earthquake magnitude or storm intensity)
-    - probability: 0.0–1.0 likelihood score (used by rainfall/weather hazards)
+    - probability: 0–100% likelihood score (used by rainfall/weather hazards)
     - specific_data: flexible dict for any source-specific extra fields
     """
 

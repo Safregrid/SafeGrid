@@ -29,5 +29,37 @@ class Settings(BaseSettings):
     # Comma-separated string → list of strings
     allowed_origins: list[str] = ["http://localhost:5173"]
 
+    # --- Regional risk grid (docs/RISK_MODEL.md § 4.1) ----------------------
+    # The pilot region is CONFIG, not code: repointing SafeGrid at a different
+    # community later must be an environment variable, never a code change.
+    #
+    # WORKING ASSUMPTION — not a confirmed decision. The defaults are a ~33 km
+    # box around Gokak (Belagavi district), chosen only because the KSDMA action
+    # plan lists Gokak as a Very High flood-risk area. The guide has not
+    # confirmed the pilot village. Override in .env once it is agreed.
+    grid_cell_size_deg: float = 0.1  # ~11 km = Open-Meteo's model resolution; no invented precision
+    grid_region_name: str = "gokak-pilot"
+    grid_min_lat: float = 16.0
+    grid_min_lon: float = 74.7
+    grid_max_lat: float = 16.3
+    grid_max_lon: float = 75.0
+
+    # The region can instead be described the way a user describes where they
+    # live: a point plus a radius. When both centre values are set they win
+    # over the bounding box above. See app/ingestion/region.py — this is a
+    # coverage parameter (what we look at), not a risk threshold.
+    # WORKING ASSUMPTION, same caveat as the box: unset by default.
+    grid_center_lat: float | None = None
+    grid_center_lon: float | None = None
+    grid_radius_km: float = 20.0
+
+    grid_window_hours: int = 24  # peak-hour scoring window (P2's DEFAULT_WINDOW_HOURS)
+    # Refresh cadence for the scheduled runner. Must stay BELOW P4's
+    # GRID_CELL_TTL_SECONDS (3h) or every served cell reads as stale immediately.
+    grid_run_minutes: int = 120
+    # Whether FastAPI starts the refresh loop at startup. Disabled in tests
+    # (tests/conftest.py) so a test session never makes a real Open-Meteo call.
+    grid_scheduler_enabled: bool = True
+
 
 settings = Settings()

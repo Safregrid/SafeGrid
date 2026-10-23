@@ -7,12 +7,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "node --test test/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
     "maplibre-gl": "^4.3.2"
   },
   "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
     "vite": "^5.3.1",
     "vite-plugin-pwa": "^0.20.0"
   }
