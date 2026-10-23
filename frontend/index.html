@@ -4,175 +4,332 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="SafeGrid — disaster preparedness and geographic risk visualization dashboard" />
-    <title>SafeGrid — Disaster Preparedness Dashboard</title>
+    <meta name="theme-color" content="#08090b" />
+    <title>SafeGrid — Disaster Preparedness Radar & Dashboard</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app">
-      <!-- Academic Project Header with Navigation Tabs -->
+      <!-- Top Tactical Header with NERV-style Telemetry & Scale Strip -->
       <header class="app-header">
-        <div class="header-brand">
-          <span class="brand-emblem">🛡️</span>
-          <div>
-            <h1 class="brand-title">SafeGrid</h1>
-            <p class="brand-subtitle">Academic Disaster Preparedness Platform</p>
+        <div class="header-top-row">
+          <div class="header-brand">
+            <div class="brand-radar-icon">
+              <span class="radar-sweep"></span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="6"></circle>
+                <circle cx="12" cy="12" r="2"></circle>
+                <line x1="12" y1="2" x2="12" y2="12"></line>
+              </svg>
+            </div>
+            <div>
+              <div class="brand-title-wrap">
+                <h1 class="brand-title">SAFEGRID</h1>
+                <span class="brand-badge">RADAR</span>
+              </div>
+              <p class="brand-subtitle">Academic Disaster Preparedness Platform</p>
+            </div>
+          </div>
+
+          <!-- Desktop Navigation Tabs (Hidden on small phones, prominent on laptop/desktop) -->
+          <nav class="desktop-nav-tabs" aria-label="Main Navigation">
+            <button id="tab-home" class="desktop-tab-btn active" type="button" aria-controls="view-home" aria-selected="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+              </svg>
+              <span>Home</span>
+            </button>
+            <button id="tab-map" class="desktop-tab-btn" type="button" aria-controls="view-map" aria-selected="false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
+                <line x1="8" y1="2" x2="8" y2="18"></line>
+                <line x1="16" y1="6" x2="16" y2="22"></line>
+              </svg>
+              <span>Map</span>
+            </button>
+          </nav>
+
+          <!-- Top Status & Real-Time Clock -->
+          <div class="header-meta">
+            <span id="digital-clock" class="digital-clock">--:--</span>
+            <span id="connection-status" class="system-status cached">
+              <span class="status-dot"></span> <span id="status-text">CONNECTING</span>
+            </span>
           </div>
         </div>
 
-        <!-- Top Navigation Tabs (Home & Map) -->
-        <nav class="nav-tabs" aria-label="Main Navigation">
-          <button id="tab-home" class="tab-btn active" type="button" aria-controls="view-home" aria-selected="true">
-            <span class="tab-icon">🏠</span> Home
-          </button>
-          <button id="tab-map" class="tab-btn" type="button" aria-controls="view-map" aria-selected="false">
-            <span class="tab-icon">🗺️</span> Map
-          </button>
-        </nav>
-
-        <div class="header-meta">
-          <span id="connection-status" class="system-status cached">
-            <span class="status-dot"></span> <span id="status-text">CONNECTING...</span>
-          </span>
+        <!-- NERV-style Precipitation & Risk Scale Strip -->
+        <div class="scale-bar-container" title="Open-Meteo & IMD Precipitation Risk Scale">
+          <div class="scale-bar-header">
+            <span class="scale-title">Precipitation & Hazard Intensity (IMD / Open-Meteo)</span>
+            <span class="scale-unit">mm / h</span>
+          </div>
+          <div class="scale-strip">
+            <div class="scale-segment s-zero"><span class="scale-val">0</span><span class="scale-lbl">Dry</span></div>
+            <div class="scale-segment s-1"><span class="scale-val">1</span><span class="scale-lbl">V.Light</span></div>
+            <div class="scale-segment s-5"><span class="scale-val">5</span><span class="scale-lbl">Light</span></div>
+            <div class="scale-segment s-10"><span class="scale-val">15</span><span class="scale-lbl">Moderate</span></div>
+            <div class="scale-segment s-30"><span class="scale-val">30</span><span class="scale-lbl">Heavy</span></div>
+            <div class="scale-segment s-50"><span class="scale-val">50</span><span class="scale-lbl">V.Heavy</span></div>
+            <div class="scale-segment s-80"><span class="scale-val">65+</span><span class="scale-lbl">Flood/Extreme</span></div>
+          </div>
         </div>
       </header>
 
-      <!-- Main Body: Home Dashboard View & Map View -->
+      <!-- Main Body: Dashboard View & Fullscreen Map View -->
       <main class="main-content">
         <!-- VIEW 1: HOME DASHBOARD (Default) -->
         <section id="view-home" class="dashboard-view active" aria-labelledby="tab-home">
-          <div class="dashboard-container">
-            <!-- Big Area Status Card -->
-            <div id="user-zone-card" class="zone-card zone-unknown">
-              <div class="zone-card-header">
-                <span class="zone-label">YOUR LOCATION STATUS</span>
-                <span id="zone-freshness-pill" class="badge-pill cached">
-                  <span class="status-dot"></span> <span id="zone-freshness-text">Detecting...</span>
-                </span>
+          <div class="dashboard-grid-layout">
+            <!-- Left Column: Primary User Risk Card & Academic Notice -->
+            <div class="dashboard-col-primary">
+              <!-- Big Area Status Card -->
+              <div id="user-zone-card" class="zone-card zone-unknown">
+                <div class="zone-card-header">
+                  <div class="zone-tag-wrap">
+                    <span class="zone-tag-prefix">ASSESSED REGION</span>
+                    <span class="zone-tag-indicator"></span>
+                  </div>
+                  <span id="zone-freshness-pill" class="badge-pill cached">
+                    <span class="status-dot"></span> <span id="zone-freshness-text">Detecting...</span>
+                  </span>
+                </div>
+
+                <div class="zone-headline">
+                  <div class="zone-icon-ring">
+                    <span id="zone-icon" class="zone-big-icon">⚪</span>
+                  </div>
+                  <div class="zone-title-content">
+                    <h2 id="zone-title" class="zone-title">ZONE UNKNOWN</h2>
+                    <p id="zone-meaning" class="zone-meaning">Requesting GPS to assess regional hazard risk...</p>
+                  </div>
+                </div>
+
+                <!-- Location & Assessment Metadata Grid -->
+                <div class="zone-meta-grid">
+                  <div class="meta-item">
+                    <span class="meta-label">COORDINATES</span>
+                    <span id="user-coords-text" class="meta-value font-mono">Waiting for GPS...</span>
+                  </div>
+                  <div class="meta-item">
+                    <span class="meta-label">SEVERITY SCORE</span>
+                    <span id="zone-score-text" class="meta-value font-mono">—</span>
+                  </div>
+                  <div class="meta-item">
+                    <span class="meta-label">LAST EVALUATED</span>
+                    <span id="zone-timestamp-text" class="meta-value font-mono">—</span>
+                  </div>
+                </div>
+
+                <!-- Interactive Card Action Buttons -->
+                <div class="zone-card-actions">
+                  <button id="btn-detect-location" class="action-btn-secondary" type="button">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                    <span>Detect Location</span>
+                  </button>
+                  <button id="btn-goto-map" class="action-btn-primary" type="button">
+                    <span>Inspect Risk on Map</span>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                      <polyline points="12 5 19 12 12 19"></polyline>
+                    </svg>
+                  </button>
+                </div>
               </div>
 
-              <div class="zone-headline">
-                <span id="zone-icon" class="zone-big-icon">⚪</span>
-                <div>
-                  <h2 id="zone-title" class="zone-title">ZONE UNKNOWN</h2>
-                  <p id="zone-meaning" class="zone-meaning">Requesting location to assess regional hazard risk...</p>
+              <!-- Academic & Safety Honesty Banner -->
+              <div class="academic-disclaimer-card">
+                <div class="disclaimer-icon-wrap">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                  </svg>
                 </div>
-              </div>
-
-              <!-- Location & Assessment Metadata -->
-              <div class="zone-meta-grid">
-                <div class="meta-item">
-                  <span class="meta-label">COORDINATES</span>
-                  <span id="user-coords-text" class="meta-value">Waiting for GPS...</span>
+                <div class="disclaimer-text">
+                  <strong>Academic Prototype Notice:</strong> SafeGrid is an academic research platform and is NOT a certified emergency dispatch service. 
+                  <span class="disclaimer-highlight">A "LOW" zone does NOT imply safe.</span> In emergency situations, always rely on official guidance from the National Disaster Management Authority (NDMA) and civil defence.
                 </div>
-                <div class="meta-item">
-                  <span class="meta-label">SEVERITY SCORE</span>
-                  <span id="zone-score-text" class="meta-value">—</span>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">ASSESSED AT</span>
-                  <span id="zone-timestamp-text" class="meta-value">—</span>
-                </div>
-              </div>
-
-              <div class="zone-card-actions">
-                <button id="btn-detect-location" class="action-btn-secondary" type="button">
-                  📍 Detect / Refresh Location
-                </button>
-                <button id="btn-goto-map" class="action-btn-primary" type="button">
-                  🗺️ Inspect Risk on Map ➔
-                </button>
               </div>
             </div>
 
-            <!-- Regional Active Hazards Overview Card -->
-            <div class="summary-card">
-              <h3 class="card-heading">Regional Risk Overview</h3>
-              <p class="card-subtext">Calculated zones and active weather/seismic feeds from backend models:</p>
-              <div class="threat-counters">
-                <div class="counter-card high">
-                  <span class="counter-num" id="count-high">0</span>
-                  <span class="counter-label">HIGH RISK</span>
+            <!-- Right Column: Regional Risk Overview & Live Feeds -->
+            <div class="dashboard-col-secondary">
+              <!-- Regional Overview Card -->
+              <div class="summary-card">
+                <div class="card-header-row">
+                  <h3 class="card-heading">Regional Risk Telemetry</h3>
+                  <span class="card-badge">Open-Meteo & IMD</span>
                 </div>
-                <div class="counter-card moderate">
-                  <span class="counter-num" id="count-moderate">0</span>
-                  <span class="counter-label">MODERATE</span>
+                <p class="card-subtext">Active scored grid cells and weather events registered in the regional backend:</p>
+                
+                <div class="threat-counters">
+                  <div class="counter-card high">
+                    <span class="counter-num" id="count-high">0</span>
+                    <span class="counter-label">HIGH (RED)</span>
+                  </div>
+                  <div class="counter-card moderate">
+                    <span class="counter-num" id="count-moderate">0</span>
+                    <span class="counter-label">MODERATE</span>
+                  </div>
+                  <div class="counter-card low">
+                    <span class="counter-num" id="count-low">0</span>
+                    <span class="counter-label">LOW (GREEN)</span>
+                  </div>
                 </div>
-                <div class="counter-card low">
-                  <span class="counter-num" id="count-low">0</span>
-                  <span class="counter-label">LOW RISK</span>
-                </div>
-              </div>
-              <div id="dashboard-hazard-summary" class="hazard-summary-list">
-                <p class="summary-empty">Loading active hazard telemetry...</p>
-              </div>
-            </div>
 
-            <!-- Academic & Safety Honesty Banner -->
-            <div class="academic-disclaimer-card">
-              <span class="disclaimer-icon">ℹ️</span>
-              <div class="disclaimer-text">
-                <strong>Academic Prototype Notice:</strong> SafeGrid is an academic research platform and is NOT a certified government warning service. 
-                <span class="disclaimer-highlight">A "LOW" zone does NOT mean safe.</span> Always heed official guidance from local disaster management authorities.
+                <div class="telemetry-feed-section">
+                  <div class="feed-header">
+                    <span>ACTIVE HAZARDS TELEMETRY</span>
+                    <span class="feed-pulse"></span>
+                  </div>
+                  <div id="dashboard-hazard-summary" class="hazard-summary-list">
+                    <p class="summary-empty">Connecting to backend hazard pipeline...</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Quick Desktop Triggers -->
+              <div class="desktop-action-triggers">
+                <button id="desktop-btn-sos" class="desktop-quick-btn sos" type="button">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                  </svg>
+                  <div>
+                    <strong>Emergency SOS Info Card</strong>
+                    <small>Show to responders / Send coordinates</small>
+                  </div>
+                </button>
+
+                <button id="desktop-btn-guide" class="desktop-quick-btn guide" type="button">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                  </svg>
+                  <div>
+                    <strong>Safety Guidelines (NDMA/IMD)</strong>
+                    <small>Official protocols & Print / PDF</small>
+                  </div>
+                </button>
               </div>
             </div>
           </div>
         </section>
 
-        <!-- VIEW 2: MAP VIEW -->
+        <!-- VIEW 2: FULLSCREEN MAP VIEW -->
         <section id="view-map" class="map-view" aria-labelledby="tab-map">
-          <!-- Fullscreen Map Base -->
+          <!-- Fullscreen MapLibre Canvas Container -->
           <div id="map"></div>
 
-          <!-- Overlaid Map Control Panel -->
+          <!-- Floating Map Overlay Bar (NERV Tactical Floating HUD) -->
+          <div class="map-floating-hud">
+            <div class="hud-stat-pill">
+              <span class="hud-label">HIGH</span>
+              <span class="hud-val red" id="map-count-high">0</span>
+            </div>
+            <div class="hud-stat-pill">
+              <span class="hud-label">MOD</span>
+              <span class="hud-val yellow" id="map-count-moderate">0</span>
+            </div>
+            <div class="hud-stat-pill">
+              <span class="hud-label">LOW</span>
+              <span class="hud-val green" id="map-count-low">0</span>
+            </div>
+          </div>
+
+          <!-- Overlaid Map Telemetry Inspector Panel -->
           <aside class="control-panel">
             <div class="panel-section">
-              <h2 class="panel-heading">Active Risk Zones</h2>
-              <div class="threat-counters mini">
-                <div class="counter-card high">
-                  <span class="counter-num" id="map-count-high">0</span>
-                  <span class="counter-label">HIGH</span>
-                </div>
-                <div class="counter-card moderate">
-                  <span class="counter-num" id="map-count-moderate">0</span>
-                  <span class="counter-label">MOD</span>
-                </div>
-                <div class="counter-card low">
-                  <span class="counter-num" id="map-count-low">0</span>
-                  <span class="counter-label">LOW</span>
-                </div>
+              <div class="panel-header-row">
+                <h2 class="panel-heading">Regional Risk Grid</h2>
+                <span class="live-dot-tag">● LIVE</span>
               </div>
+              <p class="panel-desc">Click any risk zone polygon or hazard marker on the map to inspect telemetry:</p>
             </div>
 
             <div class="panel-section">
-              <h3 class="section-title">Hazard Information Feed</h3>
               <div id="hazard-details-card" class="details-card">
-                <p class="details-placeholder">Click any marker or risk zone on the map to inspect hazard data.</p>
+                <div class="details-placeholder-wrap">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                  <p class="details-placeholder">Click any scored cell or marker on the map to inspect calculated risk fields.</p>
+                </div>
               </div>
             </div>
 
             <div class="panel-footer">
-              <p class="footer-note">Academic Project | Not a certified emergency service | LOW risk does not imply safety</p>
+              <p class="footer-note">Academic Prototype | Single Source of Truth: Backend | LOW ≠ Safe</p>
             </div>
           </aside>
         </section>
       </main>
 
-      <!-- Bottom Quick-Action Bar for Phone Access -->
-      <nav class="bottom-action-bar" aria-label="Emergency Actions">
-        <button id="btn-sos-trigger" class="bottom-btn btn-sos disabled" type="button" aria-haspopup="dialog" aria-expanded="false" disabled>
-          <span class="btn-icon">🆘</span>
-          <span class="btn-text">
-            <strong>Emergency SOS</strong>
-            <small id="sos-btn-hint">Active in Red/Yellow Zone</small>
-          </span>
+      <!-- NERV-Style Bottom Navigation Bar (Fixed for Mobile & Universal Control) -->
+      <nav class="bottom-action-bar" aria-label="Main App Navigation">
+        <!-- 1. Home Tab -->
+        <button id="bnav-home" class="bnav-item active" type="button">
+          <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+          </svg>
+          <span class="bnav-label">Home</span>
         </button>
 
-        <button id="btn-guidelines-trigger" class="bottom-btn btn-guidelines" type="button" aria-haspopup="dialog" aria-expanded="false">
-          <span class="btn-icon">📋</span>
-          <span class="btn-text">
-            <strong>Safety Guidelines</strong>
-            <small>NDMA & IMD Protocols</small>
-          </span>
+        <!-- 2. Map Tab -->
+        <button id="bnav-map" class="bnav-item" type="button">
+          <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
+            <line x1="8" y1="2" x2="8" y2="18"></line>
+            <line x1="16" y1="6" x2="16" y2="22"></line>
+          </svg>
+          <span class="bnav-label">Map</span>
+        </button>
+
+        <!-- 3. Emergency SOS (Center Tactical Trigger) -->
+        <button id="btn-sos-trigger" class="bnav-item bnav-sos disabled" type="button" aria-haspopup="dialog" aria-expanded="false" disabled>
+          <div class="bnav-sos-ring">
+            <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <span class="bnav-label">SOS</span>
+          <span id="sos-btn-hint" class="sr-only">Active in Red/Yellow Zone</span>
+        </button>
+
+        <!-- 4. Safety Guidelines -->
+        <button id="btn-guidelines-trigger" class="bnav-item" type="button" aria-haspopup="dialog" aria-expanded="false">
+          <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+          <span class="bnav-label">Guidelines</span>
+        </button>
+
+        <!-- 5. Menu / About (Screenshot 3.jpeg) -->
+        <button id="btn-menu-trigger" class="bnav-item" type="button" aria-haspopup="dialog" aria-expanded="false">
+          <svg class="bnav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+          <span class="bnav-label">Menu</span>
         </button>
       </nav>
 
@@ -184,7 +341,7 @@
               <span class="modal-badge-icon">🆘</span>
               <div>
                 <h3 id="sos-modal-title" class="modal-title">Emergency Location Card</h3>
-                <p class="modal-subtitle">Display to nearby responders or send to emergency contacts</p>
+                <p class="modal-subtitle">Display to nearby responders or transmit to emergency contacts</p>
               </div>
             </div>
             <button id="btn-close-sos" class="close-btn" type="button" aria-label="Close SOS Modal">✕</button>
@@ -199,43 +356,51 @@
 
               <div class="sos-coords-box">
                 <span class="sos-label">EXACT GPS COORDINATES</span>
-                <p id="sos-coords-display" class="sos-coords-large">12.9716° N, 77.5946° E</p>
-                <small id="sos-accuracy-display" class="sos-accuracy">GPS Accuracy: ±15m</small>
+                <p id="sos-coords-display" class="sos-coords-large font-mono">12.9716° N, 77.5946° E</p>
+                <small id="sos-accuracy-display" class="sos-accuracy font-mono">GPS Accuracy: ±15m</small>
               </div>
 
               <div class="sos-time-row">
                 <span class="sos-label">ASSESSMENT TIMESTAMP</span>
-                <span id="sos-timestamp-display" class="sos-timestamp">--</span>
+                <span id="sos-timestamp-display" class="sos-timestamp font-mono">--</span>
               </div>
             </div>
 
             <!-- Action Buttons for SOS -->
             <div class="sos-actions">
               <button id="btn-share-sos" class="sos-btn-share" type="button">
-                📋 Copy / Share Emergency SMS
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                  <polyline points="16 6 12 2 8 6"></polyline>
+                  <line x1="12" y1="2" x2="12" y2="15"></line>
+                </svg>
+                <span>Share / Copy Emergency Coordinates</span>
               </button>
               <div id="sos-copy-toast" class="copy-toast" hidden>✓ Copied emergency message to clipboard!</div>
 
               <div class="dialer-action-wrap">
                 <a id="link-dial-112" href="tel:112" class="call-112-btn">
-                  📞 Call 112 (Open Phone Emergency Dialer)
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                  </svg>
+                  <span>Call 112 (National Emergency Helpline)</span>
                 </a>
                 <p class="dialer-note">
-                  * Opens your phone's native phone app to call <strong>112</strong> (National Emergency Helpline). This uses your phone's cellular network, not SafeGrid.
+                  * Opens your phone's cellular dialer to call <strong>112</strong>. SafeGrid does not transmit calls or replace emergency dispatch.
                 </p>
               </div>
             </div>
 
             <!-- Safety Notice -->
             <div class="sos-disclaimer">
-              <p><strong>⚠️ Non-Dispatch Notice:</strong> SafeGrid is an academic tool. It does <em>not</em> dispatch emergency response teams or notify emergency authorities automatically.</p>
-              <p><strong>Offline Notice:</strong> This SOS info remains viewable offline. Messages will be transmitted when mobile network reception is available.</p>
+              <p><strong>⚠️ Non-Dispatch Notice:</strong> SafeGrid is an academic research platform and cannot dispatch responders automatically.</p>
+              <p><strong>Offline Availability:</strong> This emergency card remains active offline via cached data. Messages are transmitted over SMS/cellular.</p>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- MODAL 2: SAFETY GUIDELINES -->
+      <!-- MODAL 2: SAFETY GUIDELINES (NDMA / IMD) -->
       <div id="modal-guidelines" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="guidelines-modal-title" hidden>
         <div class="modal-card guidelines-card">
           <div class="modal-header">
@@ -248,7 +413,12 @@
             </div>
             <div class="modal-actions-right">
               <button id="btn-print-guidelines" class="print-btn" type="button" title="Save as PDF or Print">
-                📄 Print / Save PDF
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                  <rect x="6" y="14" width="12" height="8"></rect>
+                </svg>
+                <span>Print / Save PDF</span>
               </button>
               <button id="btn-close-guidelines" class="close-btn" type="button" aria-label="Close Guidelines Modal">✕</button>
             </div>
@@ -265,12 +435,12 @@
 
             <!-- Tab Content 1: Current Zone Specific Actions -->
             <div id="guide-zone" class="guide-panel active">
-              <h4 class="guide-panel-title">What to do in your assessed zone:</h4>
+              <h4 class="guide-panel-title">Immediate Protocol for Assessed Zone:</h4>
               <div class="zone-instruction red">
                 <h5>🔴 Red Zone (High Risk) Protocol</h5>
                 <ul>
-                  <li><strong>Evacuation Readiness:</strong> If local authorities issue an evacuation order, evacuate immediately along designated routes.</li>
-                  <li><strong>Shelter:</strong> Move to designated high ground or cyclone/flood shelters. Avoid basements and low-lying ground.</li>
+                  <li><strong>Evacuation Readiness:</strong> If local authorities issue an evacuation advisory, move immediately along designated routes.</li>
+                  <li><strong>Vertical Shelter:</strong> Move to designated high ground or cyclone/flood shelters. Avoid basements and low-lying ground.</li>
                   <li><strong>Utilities:</strong> Turn off main electrical switches and cooking gas cylinders before leaving.</li>
                   <li><strong>Emergency Kit:</strong> Keep go-bag ready (drinking water, medicines, torch, dry food, power bank).</li>
                 </ul>
@@ -327,6 +497,78 @@
             <div class="guidelines-citation">
               <strong>Official Sourced References:</strong>
               <p>National Disaster Management Authority (NDMA), Government of India Guidelines (<a href="https://ndma.gov.in" target="_blank" rel="noopener">ndma.gov.in</a>) and India Meteorological Department (IMD) Standard Operating Procedures for Disaster Management.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL 3: NERV-STYLE MENU / SETTINGS / ABOUT (Matches Reference 3.jpeg) -->
+      <div id="modal-menu" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="menu-modal-title" hidden>
+        <div class="modal-card menu-card">
+          <div class="modal-header">
+            <div class="modal-title-wrap">
+              <span class="modal-badge-icon">⚙️</span>
+              <div>
+                <h3 id="menu-modal-title" class="modal-title">System & About</h3>
+                <p class="modal-subtitle">Platform Information & Technical Telemetry</p>
+              </div>
+            </div>
+            <button id="btn-close-menu" class="close-btn" type="button" aria-label="Close Menu Modal">✕</button>
+          </div>
+
+          <div class="modal-body menu-body">
+            <!-- Group 1: Telemetry & Engine -->
+            <div class="menu-group">
+              <h4 class="menu-group-title">Telemetry & System Config</h4>
+              <div class="menu-list">
+                <div class="menu-item">
+                  <span class="menu-item-label">Regional Weather Grid</span>
+                  <span class="menu-item-value">Open-Meteo Hourly API</span>
+                </div>
+                <div class="menu-item">
+                  <span class="menu-item-label">Single Source of Truth</span>
+                  <span class="menu-item-value">FastAPI Regional Risk Engine</span>
+                </div>
+                <div class="menu-item">
+                  <span class="menu-item-label">Offline Storage Engine</span>
+                  <span class="menu-item-value">IndexedDB + Service Worker</span>
+                </div>
+                <div class="menu-item">
+                  <span class="menu-item-label">Map Style Architecture</span>
+                  <span class="menu-item-value">CartoDB Dark Matter / MapLibre</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Group 2: About SafeGrid (Matches 3.jpeg) -->
+            <div class="menu-group">
+              <h4 class="menu-group-title">About this Platform</h4>
+              <div class="menu-list">
+                <div class="menu-item">
+                  <span class="menu-item-label">Platform Version</span>
+                  <span class="menu-item-value font-mono">v0.1.0-academic</span>
+                </div>
+                <div class="menu-item">
+                  <span class="menu-item-label">Classification Standards</span>
+                  <span class="menu-item-value">IMD / NDMA Guidelines</span>
+                </div>
+                <div class="menu-item">
+                  <span class="menu-item-label">Emergency Helpline</span>
+                  <a href="tel:112" class="menu-item-link font-mono">Dial 112 (India)</a>
+                </div>
+                <div class="menu-item">
+                  <span class="menu-item-label">Academic Disclaimer</span>
+                  <span class="menu-item-value warning">LOW does NOT mean safe</span>
+                </div>
+                <div class="menu-item">
+                  <span class="menu-item-label">Deployment Mode</span>
+                  <span class="menu-item-value">Progressive Web App (PWA)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="menu-citation-box">
+              <p><strong>SafeGrid Academic Research Prototype:</strong> Designed for geographic disaster risk awareness and emergency guidance. This software is not an emergency dispatch agency.</p>
             </div>
           </div>
         </div>

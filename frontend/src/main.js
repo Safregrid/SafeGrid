@@ -34,8 +34,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---------------------------------------------------------------------------
   // DOM Elements
   // ---------------------------------------------------------------------------
+  const clockEl = document.getElementById('digital-clock');
   const tabHome = document.getElementById('tab-home');
   const tabMap = document.getElementById('tab-map');
+  const bnavHome = document.getElementById('bnav-home');
+  const bnavMap = document.getElementById('bnav-map');
   const viewHome = document.getElementById('view-home');
   const viewMap = document.getElementById('view-map');
   const btnGotoMap = document.getElementById('btn-goto-map');
@@ -54,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // SOS elements
   const btnSosTrigger = document.getElementById('btn-sos-trigger');
+  const desktopBtnSos = document.getElementById('desktop-btn-sos');
   const sosBtnHint = document.getElementById('sos-btn-hint');
   const modalSos = document.getElementById('modal-sos');
   const btnCloseSos = document.getElementById('btn-close-sos');
@@ -66,42 +70,74 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Guidelines elements
   const btnGuidelinesTrigger = document.getElementById('btn-guidelines-trigger');
+  const desktopBtnGuide = document.getElementById('desktop-btn-guide');
   const modalGuidelines = document.getElementById('modal-guidelines');
   const btnCloseGuidelines = document.getElementById('btn-close-guidelines');
   const btnPrintGuidelines = document.getElementById('btn-print-guidelines');
   const guidelineTabBtns = document.querySelectorAll('.g-tab-btn');
   const guidelinePanels = document.querySelectorAll('.guide-panel');
 
+  // Menu elements (Screenshot 3.jpeg)
+  const btnMenuTrigger = document.getElementById('btn-menu-trigger');
+  const modalMenu = document.getElementById('modal-menu');
+  const btnCloseMenu = document.getElementById('btn-close-menu');
+
+  // ---------------------------------------------------------------------------
+  // Real-Time Clock Ticker
+  // ---------------------------------------------------------------------------
+  function updateClock() {
+    if (clockEl) {
+      const now = new Date();
+      clockEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
   // ---------------------------------------------------------------------------
   // Tab Navigation Handling
   // ---------------------------------------------------------------------------
   function switchTab(target) {
     if (target === 'home') {
-      tabHome.classList.add('active');
-      tabHome.setAttribute('aria-selected', 'true');
-      tabMap.classList.remove('active');
-      tabMap.setAttribute('aria-selected', 'false');
+      if (tabHome) {
+        tabHome.classList.add('active');
+        tabHome.setAttribute('aria-selected', 'true');
+      }
+      if (tabMap) {
+        tabMap.classList.remove('active');
+        tabMap.setAttribute('aria-selected', 'false');
+      }
+      if (bnavHome) bnavHome.classList.add('active');
+      if (bnavMap) bnavMap.classList.remove('active');
 
-      viewHome.classList.add('active');
-      viewMap.classList.remove('active');
+      if (viewHome) viewHome.classList.add('active');
+      if (viewMap) viewMap.classList.remove('active');
     } else if (target === 'map') {
-      tabMap.classList.add('active');
-      tabMap.setAttribute('aria-selected', 'true');
-      tabHome.classList.remove('active');
-      tabHome.setAttribute('aria-selected', 'false');
+      if (tabMap) {
+        tabMap.classList.add('active');
+        tabMap.setAttribute('aria-selected', 'true');
+      }
+      if (tabHome) {
+        tabHome.classList.remove('active');
+        tabHome.setAttribute('aria-selected', 'false');
+      }
+      if (bnavMap) bnavMap.classList.add('active');
+      if (bnavHome) bnavHome.classList.remove('active');
 
-      viewMap.classList.add('active');
-      viewHome.classList.remove('active');
+      if (viewMap) viewMap.classList.add('active');
+      if (viewHome) viewHome.classList.remove('active');
 
       // Trigger MapLibre resize so canvas recalculates dimensions properly
       if (mapInstance) {
-        setTimeout(() => mapInstance.resize(), 60);
+        setTimeout(() => mapInstance.resize(), 80);
       }
     }
   }
 
   if (tabHome) tabHome.addEventListener('click', () => switchTab('home'));
   if (tabMap) tabMap.addEventListener('click', () => switchTab('map'));
+  if (bnavHome) bnavHome.addEventListener('click', () => switchTab('home'));
+  if (bnavMap) bnavMap.addEventListener('click', () => switchTab('map'));
   if (btnGotoMap) btnGotoMap.addEventListener('click', () => switchTab('map'));
 
   // ---------------------------------------------------------------------------
@@ -318,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } else if (statusPill && statusText) {
         statusPill.className = 'system-status offline';
-        statusText.textContent = 'API UNAVAILABLE';
+        statusText.textContent = 'OFFLINE';
       }
 
       const hazards = hazardPayload?.hazards ?? [];
@@ -360,7 +396,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function openSosModal() {
     if (!modalSos) return;
     if (currentZone !== 'HIGH' && currentZone !== 'MODERATE') {
-      return; // Safety rule: SOS info only active for RED / YELLOW
+      alert('Notice: The Emergency SOS card is reserved for active RED and YELLOW hazard zones. Your current status is LOW or UNKNOWN.\n\nReminder: LOW risk does NOT imply safe.');
+      return;
     }
 
     // Populate SOS fields
@@ -393,7 +430,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     modalSos.hidden = false;
-    btnSosTrigger.setAttribute('aria-expanded', 'true');
+    if (btnSosTrigger) btnSosTrigger.setAttribute('aria-expanded', 'true');
   }
 
   function closeSosModal() {
@@ -404,6 +441,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (btnSosTrigger) btnSosTrigger.addEventListener('click', openSosModal);
+  if (desktopBtnSos) desktopBtnSos.addEventListener('click', openSosModal);
   if (btnCloseSos) btnCloseSos.addEventListener('click', closeSosModal);
   if (modalSos) {
     modalSos.addEventListener('click', (e) => {
@@ -452,7 +490,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function openGuidelinesModal() {
     if (!modalGuidelines) return;
     modalGuidelines.hidden = false;
-    btnGuidelinesTrigger.setAttribute('aria-expanded', 'true');
+    if (btnGuidelinesTrigger) btnGuidelinesTrigger.setAttribute('aria-expanded', 'true');
   }
 
   function closeGuidelinesModal() {
@@ -462,6 +500,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (btnGuidelinesTrigger) btnGuidelinesTrigger.addEventListener('click', openGuidelinesModal);
+  if (desktopBtnGuide) desktopBtnGuide.addEventListener('click', openGuidelinesModal);
   if (btnCloseGuidelines) btnCloseGuidelines.addEventListener('click', closeGuidelinesModal);
   if (modalGuidelines) {
     modalGuidelines.addEventListener('click', (e) => {
@@ -486,6 +525,29 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnPrintGuidelines) {
     btnPrintGuidelines.addEventListener('click', () => {
       window.print();
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Menu / System & About Modal Logic (Screenshot 3.jpeg)
+  // ---------------------------------------------------------------------------
+  function openMenuModal() {
+    if (!modalMenu) return;
+    modalMenu.hidden = false;
+    if (btnMenuTrigger) btnMenuTrigger.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeMenuModal() {
+    if (!modalMenu) return;
+    modalMenu.hidden = true;
+    if (btnMenuTrigger) btnMenuTrigger.setAttribute('aria-expanded', 'false');
+  }
+
+  if (btnMenuTrigger) btnMenuTrigger.addEventListener('click', openMenuModal);
+  if (btnCloseMenu) btnCloseMenu.addEventListener('click', closeMenuModal);
+  if (modalMenu) {
+    modalMenu.addEventListener('click', (e) => {
+      if (e.target === modalMenu) closeMenuModal();
     });
   }
 
